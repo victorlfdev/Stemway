@@ -44,7 +44,7 @@ export default function WaveformCanvas({ src, duration, zoom = 1, color = '#4ade
       }
 
       setPaths(samples)
-      setPathsLoaded(true)
+      setIsLoaded(true)
     } catch (e) {
       console.error('Failed to parse WAV:', e)
     }
@@ -52,8 +52,9 @@ export default function WaveformCanvas({ src, duration, zoom = 1, color = '#4ade
 
   const drawWaveform = useCallback(() => {
     const canvas = canvasRef.current
-    if (!canvas || !paths.length) return
+    if (!canvas || canvas.tagName !== 'CANVAS' || !paths.length) return
 
+    if (!(canvas instanceof HTMLCanvasElement)) return
     const ctx = canvas.getContext('2d')
     const dpr = window.devicePixelRatio || 1
     const rect = canvas.getBoundingClientRect()

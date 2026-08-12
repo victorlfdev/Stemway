@@ -202,13 +202,14 @@ function App() {
   }
 
   useEffect(() => {
-    const unlisten = listen('demucs_progress', (e) => {
-      setProgress({ stage: e.payload.stage || progress.stage, percent: e.payload.percent || progress.percent, message: e.payload.message || progress.message })
+    let unlisten = null
+    listen('demucs_progress', (e) => {
+      setProgress((prev) => ({ ...prev, ...e.payload }))
       if (e.payload.stage === 'Complete') {
         setProcessing(false)
       }
-    })
-    return () => unlisten()
+    }).then((fn) => { unlisten = fn })
+    return () => { if (unlisten) unlisten() }
   }, [])
 
   const handleVolumeChange = useCallback((index, volume) => {
