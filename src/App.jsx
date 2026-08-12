@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { dirname, basename } from '@tauri-apps/api/path'
+import { open } from '@tauri-apps/plugin-dialog'
 
 function formatDuration(seconds) {
   const mins = Math.floor(seconds / 60)
@@ -16,16 +16,33 @@ function formatFileSize(bytes) {
 
 function DropZone({ onFileLoaded }) {
   const [isDragging, setIsDragging] = useState(false)
-  const fileInputRef = useRef(null)
+
+  const handleSelectFile = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        filters: [{
+          name: 'Audio',
+          extensions: ['wav', 'mp3', 'flac', 'ogg', 'oga', 'opus', 'wma', 'aiff', 'aif']
+        }]
+      })
+
+      if (selected) {
+        onFileLoaded({ path: selected })
+      }
+    } catch (err) {
+      if (err !== 'Cancelled') {
+        onFileLoaded(null, err)
+      }
+    }
+  }
 
   const handleDrop = useCallback((e) => {
     e.preventDefault()
     setIsDragging(false)
-    const file = e.dataTransfer?.files[0]
-    if (file) {
-      onFileLoaded(file)
-    }
-  }, [onFileLoaded])
+    handleSelectFile()
+  }, [])
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault()
@@ -36,40 +53,26 @@ function DropZone({ onFileLoaded }) {
     setIsDragging(false)
   }, [])
 
-  const handleClick = useCallback(() => {
-    fileInputRef.current?.click()
-  }, [])
-
-  const handleChange = useCallback((e) => {
-    const file = e.target.files[0]
-    if (file) {
-      onFileLoaded(file)
-    }
-  }, [onFileLoaded])
-
   return (
-    <div
-      onDrop={handleDrop}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onClick={handleClick}
-      className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${
-        isDragging
-          ? 'border-green-400 bg-green-400/10 scale-[1.02]'
-          : 'border-[#1a1a1a] hover:border-[#2a2a2a] hover:bg-[#111]'
-      }`}
-    >
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".wav,.mp3,.flac,.ogg"
-        onChange={handleChange}
-        className="hidden"
-      />
-      <div className="text-4xl mb-3">🎵</div>
-      <p className="text-gray-300 text-lg mb-2">Drop audio file here</p>
-      <p className="text-gray-500 text-sm">WAV, MP3, FLAC, OGG</p>
-    </div>
+    <>
+      <label htmlFor="file-input" className="cursor-pointer">
+        <div
+          onClick={handleSelectFile}
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          className={`border-2 border-dashed rounded-xl p-10 text-center transition-all ${
+            isDragging
+              ? 'border-green-400 bg-green-400/10 scale-[1.02]'
+              : 'border-[#1a1a1a] hover:border-[#2a2a2a] hover:bg-[#111]'
+          }`}
+        >
+          <div className="text-4xl mb-3">🎵</div>
+          <p className="text-gray-300 text-lg mb-2">Select a file or drop here</p>
+          <p className="text-gray-500 text-sm">WAV, MP3, FLAC, OGG</p>
+        </div>
+      </label>
+    </>
   )
 }
 
@@ -116,13 +119,12 @@ function ProgressBar({ stage, progress, message }) {
   )
 }
 
-function StemPlayer({ stem, index, onLoaded }) {
+function StemPlayer({ stem, index }) {
   const audioRef = useRef(null)
   const [playing, setPlaying] = useState(false)
   const [playingIndex, setPlayingIndex] = useState(null)
   const [volume, setVolume] = useState(1)
   const [muted, setMuted] = useState(false)
-  const [solo, setSolo] = useState(false)
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
 
@@ -164,8 +166,8 @@ function StemPlayer({ stem, index, onLoaded }) {
     }
   }, [])
 
-  const stemColors = ['#f28c00', '#1db954', '#e91e63', '#9c27b0']
-  const stemLabels = ['Vocals', 'Bass', 'Drums', 'Other']
+  const stemColors = ['#f97316', '#4ade80', '#eab308', '#a855f7', '#e11d48', '#3b82f6']
+  const stemLabels = ['Bass', 'Drums', 'Guitar', 'Other', 'Piano', 'Vocals']
 
   return (
     <div className="bg-[#111] rounded-xl p-4 border border-[#1a1a1a]">
@@ -223,12 +225,6 @@ function StemPlayer({ stem, index, onLoaded }) {
         >
           {muted ? '🔇' : '🔊'}
         </button>
-        <button
-          onClick={() => setSolo(!solo)}
-          className={`text-xs px-2 py-1 rounded transition-colors ${solo ? 'bg-yellow-500/20 text-yellow-400' : 'bg-[#1a1a1a] text-gray-400 hover:bg-[#2a2a2a]'}`}
-        >
-          Solo
-        </button>
         <input
           type="range"
           min="0"
@@ -244,38 +240,8 @@ function StemPlayer({ stem, index, onLoaded }) {
   )
 }
 
-function ExportButton({ stemPaths, onExported }) {
-  const [exporting, setExporting] = useState(false)
-  const [exported, setExported] = useState(false)
-
-  const handleExport = useCallback(async () => {
-    setExporting(true)
-    try {
-      if (stemPaths && stemPaths.length > 0) {
-        const dir = await dirname(stemPaths[0])
-        onExported?.(stemPaths, dir)
-        setExported(true)
-        setTimeout(() => setExported(false), 3000)
-      }
-    } catch (err) {
-      console.error('Export error:', err)
-    }
-    setExporting(false)
-  }, [stemPaths, onExported])
-
-  return (
-    <button
-      onClick={handleExport}
-      disabled={exporting || !stemPaths || stemPaths.length === 0}
-      className="bg-green-500 hover:bg-green-400 disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold py-3 px-8 rounded-full transition-colors"
-    >
-      {exporting ? '⏳ Saving...' : exported ? '✅ Saved!' : '💾 Export Stems'}
-    </button>
-  )
-}
-
 function App() {
-  const [fileMetadata, setFileMetadata] = useState(null)
+  const [metadata, setMetadata] = useState(null)
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState({ stage: '', progress: 0, message: '' })
   const [stemPaths, setStemPaths] = useState(null)
@@ -286,54 +252,28 @@ function App() {
     setAppReady(true)
   }, [])
 
-  const onFileLoaded = useCallback(async (file) => {
+  const onFileLoaded = useCallback(async (fileData) => {
     setError(null)
     setProcessing(false)
     setStemPaths(null)
 
+    if (!fileData || !fileData.path) return
+
     try {
-      const path = file.path || file.webkitRelativePath || URL.createObjectURL(file)
-      const meta = {
-        name: file.name.replace(/\.[^/.]+$/, ''),
-        path,
-        file_size_bytes: file.size,
-        duration_secs: 0,
-        sample_rate: 0,
-        channels: 0,
-      }
-
-      if (file.path) {
-        try {
-          const metadata = await invoke('analyze_file', { path: file.path })
-          setFileMetadata(metadata)
-        } catch (err) {
-          console.warn('analyze_file failed, using basic info:', err)
-          setFileMetadata(meta)
-        }
-      } else {
-        setFileMetadata(meta)
-      }
-
-      const outputDir = (await dirname(file.path || '/tmp')).replace(/\\/g, '/')
-
       setProcessing(true)
-      setProgress({ stage: 'Loading', progress: 0.1, message: 'Analyzing audio file...' })
+      setProgress({ stage: 'Loading', progress: 0.1, message: 'Analyzing audio...' })
 
-      try {
-        const paths = await invoke('process_audio_file', { path: file.path || '', output_dir: outputDir })
-        setStemPaths(paths)
-        setProgress({ stage: 'Complete', progress: 1, message: 'Stems separated successfully!' })
-      } catch (err) {
-        setError(`Processing failed: ${err}`)
-        setProcessing(false)
-      }
+      const result = await invoke('process_file', {
+        path: fileData.path,
+      })
+
+      setMetadata(result)
+      setStemPaths(result.paths)
+      setProgress({ stage: 'Complete', progress: 1, message: 'Stems separated!' })
     } catch (err) {
-      setError(`Error loading file: ${err}`)
+      setError(`Error: ${err}`)
+      setProcessing(false)
     }
-  }, [])
-
-  const handleExported = useCallback((paths, dir) => {
-    console.log('Stems exported to:', dir)
   }, [])
 
   const stemData = stemPaths ? stemPaths.map((p, i) => ({ path: p, index: i })) : []
@@ -345,7 +285,7 @@ function App() {
           <span className="text-xl">🎵</span>
           <h1 className="text-xl font-semibold">Stem Separator</h1>
         </div>
-        <span className="text-xs text-gray-500">Powered by HTDemucs ONNX</span>
+        <span className="text-xs text-gray-500">Powered by HTDemucs (demucs CLI)</span>
       </header>
 
       <main className="max-w-4xl mx-auto py-8 px-6">
@@ -353,16 +293,16 @@ function App() {
           <div className="text-center py-20 text-gray-500">Initializing...</div>
         )}
 
-        {appReady && !fileMetadata && (
+        {appReady && !metadata && (
           <div className="mb-8">
             <DropZone onFileLoaded={onFileLoaded} />
           </div>
         )}
 
-        {appReady && fileMetadata && (
+        {appReady && metadata && (
           <>
             <div className="mb-6">
-              <FileInfo metadata={fileMetadata} />
+              <FileInfo metadata={metadata} />
             </div>
 
             {error && (
@@ -384,21 +324,21 @@ function App() {
                     key={stem.index}
                     stem={stem.path}
                     index={stem.index}
-                    onLoaded={true}
                   />
                 ))}
               </div>
             )}
 
             {stemPaths && stemPaths.length > 0 && (
-              <div className="flex justify-center mt-6">
-                <ExportButton stemPaths={stemPaths} onExported={handleExported} />
-              </div>
-            )}
-
-            {appReady && !fileMetadata && processing && (
-              <div className="text-center">
-                <DropZone onFileLoaded={onFileLoaded} />
+              <div className="flex justify-center mt-6 gap-4">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(stemPaths.join('\n'))
+                  }}
+                  className="bg-[#1a1a1a] hover:bg-[#2a2a2a] text-white font-bold py-3 px-8 rounded-full transition-colors"
+                >
+                  📋 Copy Paths
+                </button>
               </div>
             )}
           </>
@@ -406,7 +346,7 @@ function App() {
       </main>
 
       <footer className="px-6 py-4 border-t border-[#1a1a1a] text-center text-xs text-gray-600">
-        <p>Stem Separator v0.1.0 — HTDemucs ONNX model by StemSplitio</p>
+        <p>Stem Separator v0.1.0 — HTDemucs 6-stem model (demucs CLI)</p>
       </footer>
     </div>
   )
