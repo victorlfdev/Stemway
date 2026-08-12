@@ -6,3 +6,4 @@ src-tauri/target/
 *.wav
 ort_cache/
 .cache/
+src-tauri/test-music.mp3

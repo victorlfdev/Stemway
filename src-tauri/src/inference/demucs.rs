@@ -67,7 +67,7 @@ impl DemucsModel {
     pub fn separate(
         &mut self,
         samples: &[f32],
-        sample_rate: u32,
+        _sample_rate: u32,
     ) -> Result<Vec<Vec<f32>>, String> {
         if samples.len() < 2 {
             return Ok(vec![vec![], vec![], vec![], vec![]]);

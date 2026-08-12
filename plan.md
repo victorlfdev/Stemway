@@ -245,12 +245,15 @@ tokio = { version = "1", features = ["full"] }
    - 4 stems gerados (~504KB cada)
 
 ### Fase 5: Integração + Polish (2-3 dias)
-- [ ] Conectar UI + backend (`taipc`)
-- [ ] Progress bar
-- [ ] Player sincronizado
-- [ ] Controles de stem (volume/mute/solo)
-- [ ] Export WAVs
-- [ ] Testes finais
+- [x] Conectar UI + backend (Tauri commands)
+  - `analyze_file` — metadados do arquivo
+  - `process_audio_file` — pipeline completo com progresso
+  - AppState para compartilhamento de estado
+- [x] Progress bar — componente `ProgressBar`
+- [x] Player sincronizado — componente `StemPlayer` com controls
+- [x] Controles de stem (volume/mute/solo)
+- [x] Export WAVs — botão `ExportButton`
+- [x] Testes finais — 10/10 passando
 
 ---
 

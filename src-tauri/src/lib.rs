@@ -1,6 +1,7 @@
 pub mod audio;
 pub mod inference;
 pub mod utils;
+pub mod commands;
 
 pub use inference::demucs::DemucsModel;
 pub use inference::chunk::ChunkProcessor;
@@ -9,6 +10,18 @@ pub use inference::get_env;
 
 pub fn run() {
     println!("Stem Separator running");
+}
+
+pub fn tauri_app() {
+    use commands::AppState;
+    tauri::Builder::default()
+        .manage(AppState::new())
+        .invoke_handler(tauri::generate_handler![
+            commands::analyze_file,
+            commands::process_audio_file,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running stem separator tauri app");
 }
 
 #[cfg(test)]
@@ -196,4 +209,3 @@ mod tests {
         }
     }
 }
-
