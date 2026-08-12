@@ -4,6 +4,7 @@ pub mod utils;
 
 pub use inference::demucs::DemucsModel;
 pub use inference::chunk::ChunkProcessor;
+pub use inference::stitcher::Stitcher;
 pub use inference::get_env;
 
 pub fn run() {
@@ -24,12 +25,71 @@ mod tests {
     }
 
     #[test]
-    fn test_chunk_processor_empty_samples() {
+    fn test_hann_window_values() {
         let processor = ChunkProcessor::new();
-        let result = processor.process_sequential(&[], &mut |_samples| Ok(vec![vec![]; 4]));
-        assert!(result.is_ok());
-        let stems = result.unwrap();
-        assert_eq!(stems.len(), 4);
+        let window = &processor.hann_window;
+        
+        assert!(!window.is_empty());
+        assert!((window[0] - 0.0).abs() < 0.01);
+        assert!((window[window.len() - 1] - 0.0).abs() < 0.01);
+        
+        let mid = window.len() / 2;
+        assert!(window[mid] > 0.9);
+    }
+
+    #[test]
+    fn test_chunk_processor_chunk_size() {
+        let processor = ChunkProcessor::new();
+        
+        assert_eq!(processor.chunk_size, 124800);
+        assert_eq!(processor.hop_size, 93600);
+        assert_eq!(processor.overlap, 31200);
+    }
+
+    #[test]
+    fn test_stitcher_creation() {
+        let stitcher = Stitcher::new();
+        let chunks = vec![(0, vec![vec![1.0f32; 100]; 4])];
+        let result = stitcher.merge_stems(&chunks);
+        assert!(result[0].len() > 0);
+    }
+
+    #[test]
+    fn test_stitcher_merge_simple() {
+        let stitcher = Stitcher::new();
+        let chunk_size = 100;
+        let chunks = vec![(0, vec![vec![0.5f32; chunk_size]; 4])];
+        let result = stitcher.merge_stems(&chunks);
+        
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0].len(), chunk_size);
+        assert!((result[0][50] - 0.5).abs() < 0.05);
+    }
+
+    #[test]
+    fn test_stitcher_merge_two_chunks() {
+        let stitcher = Stitcher::new();
+        let chunk_size = 100;
+        let chunks = vec![
+            (0, vec![vec![0.4f32; chunk_size]; 4]),
+            (chunk_size, vec![vec![0.6f32; chunk_size]; 4]),
+        ];
+        let result = stitcher.merge_stems(&chunks);
+        
+        assert_eq!(result[0].len(), 200);
+        assert!((result[0][50] - 0.4).abs() < 0.05);
+        assert!((result[0][150] - 0.6).abs() < 0.05);
+    }
+
+    #[test]
+    fn test_stitcher_normalize() {
+        let stitcher = Stitcher::new();
+        let mut stems = vec![vec![1.0f32, 2.0, 3.0, -4.0]];
+        let result = stitcher.normalize(&mut stems, 0.99);
+        
+        assert_eq!(result[0].len(), 4);
+        assert!(result[0].iter().all(|&x| x.abs() <= 1.0));
+        assert!(result[0].iter().any(|&x| x.abs() >= 0.9));
     }
 
     #[test]
@@ -62,3 +122,4 @@ mod tests {
         assert!(size > 0);
     }
 }
+

@@ -200,18 +200,18 @@ tokio = { version = "1", features = ["full"] }
 ---
 
 ### Fase 1: Tauri + React Setup (3-4 dias)
-- [ ] `cargo tauri init stem-separator`
-- [ ] Configurar React + Vite + TailwindCSS
-- [ ] Implementar Dropzone + Layout
-- [ ] File I/O: salvar arquivo em temp dir
+- [x] `cargo tauri init stem-separator`
+- [x] Configurar React + Vite + TailwindCSS
+- [x] Implementar Dropzone + Layout
+- [x] File I/O: salvar arquivo em temp dir
 - [ ] Build test: `.exe` + `.AppImage`
 
 ### Fase 2: Audio I/O (2-3 dias)
-- [ ] Implementar `AudioReader`:
+- [x] Implementar `AudioReader`:
   - WAV decoder (symphonia-format-wav)
   - MP3 decoder (symphonia-format-mp3)
   - Normalizar para stereo @ 44.1 kHz
-- [ ] Implementar `AudioWriter`:
+- [x] Implementar `AudioWriter`:
   - WAV writer (16-bit PCM, stereo)
   - Multi-output (4 stems)
 - [ ] Testar com arquivos reais
@@ -230,15 +230,16 @@ tokio = { version = "1", features = ["full"] }
   - Dividir em chunks de ~10s
   - Merge com overlap-add
 - [x] Testar com áudio (4 testes passing)
+- [x] **Phase 3 commit feito** (14 files, 4472 lines)
 
 ### Fase 4: Overlap-Add Chunking (2-3 dias)
-- [ ] Implementar `ChunkProcessor`:
+- [x] Implementar `ChunkProcessor`:
   - Dividir em chunks de 7.8s
-  - 25% overlap
-  - Hann window
-- [ ] Implementar `Stitcher`:
-  - Soma chunks
-  - Normalização
+  - 25% overlap (50ms Hann)
+  - Window + overlap-add merge
+- [x] Implementar `Stitcher`:
+  - Soma chunks com Hann window
+  - Normalização por stem
 - [ ] Testar músicas completas
 
 ### Fase 5: Integração + Polish (2-3 dias)
@@ -371,13 +372,13 @@ git commit -m "feat: fase 1 - tauri + react setup completo"
 - [x] Projeto limpo (removido JUCE/VST)
 - [x] Git init + commit inicial
 - [x] Git workflow definido (commits incrementais + branches)
-- [ ] Tauri + React inicializado
-- [ ] Dropzone funcional (WAV/MP3)
-- [ ] AudioReader (WAV + MP3)
-- [ ] ONNX Runtime integrado
-- [ ] HTDemucs download (primeiro uso)
-- [ ] Inference pipeline completo
-- [ ] Overlap-add chunking
+- [x] Tauri + React inicializado
+- [x] Dropzone funcional (WAV/MP3)
+- [x] AudioReader (WAV + MP3)
+- [x] ONNX Runtime integrado
+- [x] HTDemucs download (primeiro uso)
+- [x] Inference pipeline completo
+- [x] Overlap-add chunking
 - [ ] WAV export (4 stems)
 - [ ] Player sincronizado
 - [ ] Controles de stem

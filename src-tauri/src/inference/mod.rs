@@ -1,5 +1,6 @@
 pub mod demucs;
 pub mod chunk;
+pub mod stitcher;
 
 use std::sync::Arc;
 

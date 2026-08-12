@@ -1,20 +1,39 @@
 use std::vec::Vec;
 
+const TARGET_SR: u32 = 16000;
+const CHUNK_DURATION: f64 = 7.8;
+const OVERLAP_RATIO: f64 = 0.25;
+
 pub struct ChunkProcessor {
     pub chunk_size: usize,
     pub hop_size: usize,
+    pub hann_window: Vec<f32>,
+    pub overlap: usize,
 }
-
-const DEFAULT_SR: u32 = 16000;
-const CHUNK_DURATION: f64 = 10.0;
-const OVERLAP: f64 = 0.25;
 
 impl ChunkProcessor {
     pub fn new() -> Self {
+        let chunk_samples = (TARGET_SR as f64 * CHUNK_DURATION) as usize;
+        let hop_samples = (chunk_samples as f64 * (1.0 - OVERLAP_RATIO)) as usize;
+        let overlap = chunk_samples - hop_samples;
+        
+        let hann_window = Self::generate_hann_window(chunk_samples);
+        
         Self {
-            chunk_size: (DEFAULT_SR as f64 * CHUNK_DURATION) as usize,
-            hop_size: (DEFAULT_SR as f64 * CHUNK_DURATION * (1.0 - OVERLAP)) as usize,
+            chunk_size: chunk_samples,
+            hop_size: hop_samples,
+            hann_window,
+            overlap,
         }
+    }
+    
+    fn generate_hann_window(size: usize) -> Vec<f32> {
+        let mut window = vec![0.0f32; size];
+        for i in 0..size {
+            let pi = std::f32::consts::PI;
+            window[i] = 0.5 * (1.0 - (2.0 * pi * i as f32 / (size as f32 - 1.0)).cos());
+        }
+        window
     }
     
     pub fn process_sequential(
@@ -29,7 +48,7 @@ impl ChunkProcessor {
         let chunk = self.chunk_size;
         let hop = self.hop_size;
         
-        let mut results = Vec::new();
+        let mut chunk_results: Vec<(usize, Vec<Vec<f32>>)> = Vec::new();
         let mut offset = 0;
         
         while offset < samples.len() {
@@ -45,39 +64,60 @@ impl ChunkProcessor {
             };
             
             match inference(&padded) {
-                Ok(stems) => results.push((offset, stems)),
+                Ok(stems) => chunk_results.push((offset, stems)),
                 Err(e) => return Err(e),
             }
             
             offset += hop;
         }
         
-        self.merge_results(results)
+        self.merge_chunks(chunk_results)
     }
     
-    fn merge_results(&self, results: Vec<(usize, Vec<Vec<f32>>)>) -> Result<Vec<Vec<f32>>, String> {
+    fn merge_chunks(&self, results: Vec<(usize, Vec<Vec<f32>>)>) -> Result<Vec<Vec<f32>>, String> {
         if results.is_empty() {
             return Ok(vec![vec![], vec![], vec![], vec![]]);
         }
         
-        let max_len = results.iter().map(|(_, s)| s[0].len()).max().unwrap_or(0);
-        let output_size = self.hop_size.min(max_len);
+        let total_len = self.hop_size * results.len();
         
-        let mut output = vec![vec![0.0f32; output_size]; 4];
+        let mut output = vec![vec![0.0f32; total_len]; 4];
+        let mut weight = vec![0.0f32; total_len];
         
-        let mut pos = 0;
-        for (_, stems) in &results {
-            if pos >= output_size {
-                break;
-            }
-            
-            let take = (output_size - pos).min(stems[0].len());
+        let chunk = self.chunk_size;
+        let hop = self.hop_size;
+        let _overlap = self.overlap;
+        let window = &self.hann_window;
+        
+        let mut idx = 0;
+        for (_offset, stems) in &results {
+            let take = chunk.min(total_len - idx);
             
             for i in 0..4 {
-                output[i][pos..pos + take].copy_from_slice(&stems[i][..take]);
+                let stem_len = stems[i].len().min(take);
+                
+                let out_start = idx;
+                let _out_end = idx + stem_len;
+                
+                for j in 0..stem_len {
+                    let w = window[j];
+                    let pos = out_start + j;
+                    if pos < total_len {
+                        output[i][pos] += stems[i][j] * w * w;
+                        weight[pos] += w * w;
+                    }
+                }
             }
             
-            pos += take;
+            idx += hop;
+        }
+        
+        for i in 0..4 {
+            for j in 0..total_len {
+                if weight[j] > 1e-10 {
+                    output[i][j] /= weight[j];
+                }
+            }
         }
         
         Ok(output)
