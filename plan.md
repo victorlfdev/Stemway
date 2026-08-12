@@ -232,15 +232,17 @@ tokio = { version = "1", features = ["full"] }
 - [x] Testar com áudio (4 testes passing)
 - [x] **Phase 3 commit feito** (14 files, 4472 lines)
 
-### Fase 4: Overlap-Add Chunking (2-3 dias)
-- [x] Implementar `ChunkProcessor`:
-  - Dividir em chunks de 7.8s
-  - 25% overlap (50ms Hann)
-  - Window + overlap-add merge
-- [x] Implementar `Stitcher`:
-  - Soma chunks com Hann window
-  - Normalização por stem
-- [ ] Testar músicas completas
+ ### Fase 4: Overlap-Add Chunking (2-3 dias)
+ - [x] Implementar `ChunkProcessor`:
+   - Dividir em chunks de 343980 samples (21.5s @ 16kHz)
+   - 25% overlap (85995 samples)
+   - Window + overlap-add merge
+ - [x] Implementar `Stitcher`:
+   - Soma chunks com Hann window
+   - Normalização por stem
+ - [x] Pipeline end-to-end testado com test-music.mp3
+   - 10 testes passando
+   - 4 stems gerados (~504KB cada)
 
 ### Fase 5: Integração + Polish (2-3 dias)
 - [ ] Conectar UI + backend (`taipc`)
