@@ -121,5 +121,60 @@ mod tests {
         let size = metadata.unwrap().len();
         assert!(size > 0);
     }
+
+    #[test]
+    fn test_end_to_end_pipeline() {
+        use crate::audio::AudioReader;
+        
+        let input_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-music.mp3");
+        
+        let reader = AudioReader::new(&input_path)
+            .expect("Failed to read test-music.mp3");
+        
+        let duration = reader.duration_secs;
+        let sample_rate = reader.sample_rate;
+        let samples = reader.get_samples();
+        
+        assert!(!samples.is_empty());
+        assert!(duration > 0.0);
+        
+        let processor = ChunkProcessor::new();
+        let stems = processor.process_sequential(samples, &mut |chunk_data| {
+            let mut model = DemucsModel::new()?;
+            let result = model.separate(chunk_data, sample_rate)?;
+            Ok(result)
+        }).expect("Inference failed");
+        
+        assert_eq!(stems.len(), 4);
+        assert!(!stems[0].is_empty());
+        
+        let normalized = {
+            let mut stitcher = Stitcher::new();
+            stitcher.normalize(&mut stems.clone(), 0.99)
+        };
+        
+        let output_base = format!(
+            "{}/test_output_stem",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        
+        for (i, stem) in normalized.iter().enumerate() {
+            let stem_name = match i {
+                0 => "_vocals",
+                1 => "_bass",
+                2 => "_drums",
+                3 => "_other",
+                _ => "",
+            };
+            let path = format!("{}_{}.wav", output_base, stem_name);
+            let result = AudioWriter::write_stereo_wav(&path, stem, sample_rate);
+            assert!(result.is_ok(), "Failed to write stem {}: {}", i, stem_name);
+            
+            let metadata = std::fs::metadata(&path);
+            assert!(metadata.is_ok(), "File not created: {}", path);
+            let size = metadata.unwrap().len();
+            assert!(size > 0, "File is empty: {}", path);
+        }
+    }
 }
 
