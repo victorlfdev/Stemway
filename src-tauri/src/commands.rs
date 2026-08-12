@@ -1,3 +1,6 @@
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use tauri::Emitter as _;
+
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct ProcessResult {
     pub paths: Vec<String>,
@@ -8,8 +11,25 @@ pub struct ProcessResult {
     pub file_size_bytes: u64,
 }
 
-#[tauri::command(rename_all = "snake_case")]
-pub async fn process_file(path: String) -> Result<ProcessResult, String> {
+#[derive(serde::Serialize)]
+pub struct StemFileData {
+    pub data: String,
+}
+
+#[tauri::command]
+pub async fn read_stem_as_base64(path: String) -> Result<StemFileData, String> {
+    let bytes = std::fs::read(&path).map_err(|e| format!("Failed to read stem file: {}", e))?;
+    let mime = "audio/wav";
+    let encoded = BASE64.encode(&bytes);
+    let data = format!("data:{mime};base64,{}", encoded);
+    Ok(StemFileData { data })
+}
+
+#[tauri::command]
+pub async fn process_file(
+    path: String,
+    app: tauri::AppHandle,
+) -> Result<ProcessResult, String> {
     let temp_dir = directories::ProjectDirs::from("", "", "stem-separator")
         .map(|d| d.cache_dir().to_path_buf())
         .unwrap_or_else(|| std::env::temp_dir());
@@ -21,7 +41,31 @@ pub async fn process_file(path: String) -> Result<ProcessResult, String> {
     crate::demucs_cli::ensure_demucs_installed()?;
 
     let input_path = std::path::Path::new(&path);
-    crate::demucs_cli::run_demucs_cli(input_path, &output_base)?;
+
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<crate::demucs_cli::DemucsProgress>();
+
+    // Spawn task to forward progress events to frontend
+    {
+        let app_forward = app.clone();
+        tokio::spawn(async move {
+            let mut rx = rx;
+            while let Some(progress) = rx.recv().await {
+                let _ = app_forward.emit("demucs_progress", &progress);
+            }
+        });
+    }
+
+    // Run demucs with progress callback
+    let result = crate::demucs_cli::run_demucs_cli_with_progress(
+        input_path,
+        &output_base,
+        move |prog: crate::demucs_cli::DemucsProgress| {
+            let _ = tx.send(prog);
+        },
+    )
+    .await?;
+
+    let _ = result;
 
     let track_name = input_path
         .file_stem()
