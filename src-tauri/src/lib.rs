@@ -41,9 +41,9 @@ mod tests {
     fn test_chunk_processor_chunk_size() {
         let processor = ChunkProcessor::new();
         
-        assert_eq!(processor.chunk_size, 124800);
-        assert_eq!(processor.hop_size, 93600);
-        assert_eq!(processor.overlap, 31200);
+        assert_eq!(processor.chunk_size, 343980);
+        assert_eq!(processor.hop_size, 257985);
+        assert_eq!(processor.overlap, 85995);
     }
 
     #[test]
@@ -138,10 +138,29 @@ mod tests {
         assert!(!samples.is_empty());
         assert!(duration > 0.0);
         
+        let target_sr = 16000;
+        let ratio = if sample_rate as f64 > target_sr as f64 {
+            target_sr as f64 / sample_rate as f64
+        } else {
+            1.0
+        };
+        let stereo_len = samples.len() / 2;
+        let new_len = (stereo_len as f64 * ratio) as usize;
+        let mut resampled = vec![0.0f32; new_len * 2];
+        for i in (0..samples.len()).step_by(2) {
+            let idx = (i as f64 / 2.0 * ratio) as usize;
+            if idx < new_len {
+                resampled[idx * 2] = samples[i];
+                if i + 1 < samples.len() {
+                    resampled[idx * 2 + 1] = samples[i + 1];
+                }
+            }
+        }
+        
         let processor = ChunkProcessor::new();
-        let stems = processor.process_sequential(samples, &mut |chunk_data| {
+        let stems = processor.process_sequential_stereo(&resampled, &mut |chunk_data| {
             let mut model = DemucsModel::new()?;
-            let result = model.separate(chunk_data, sample_rate)?;
+            let result = model.separate(chunk_data, target_sr)?;
             Ok(result)
         }).expect("Inference failed");
         
@@ -167,7 +186,7 @@ mod tests {
                 _ => "",
             };
             let path = format!("{}_{}.wav", output_base, stem_name);
-            let result = AudioWriter::write_stereo_wav(&path, stem, sample_rate);
+            let result = AudioWriter::write_stereo_wav(&path, stem, target_sr);
             assert!(result.is_ok(), "Failed to write stem {}: {}", i, stem_name);
             
             let metadata = std::fs::metadata(&path);

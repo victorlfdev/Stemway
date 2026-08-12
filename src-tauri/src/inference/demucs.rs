@@ -10,7 +10,7 @@ pub struct DemucsModel {
 }
 
 const DEMUCS_URL: &str = "https://github.com/pykeio/ort/releases/download/model-onnx/demucs-2s.toml";
-const MODEL_NAME: &str = "htdemucs_2s.onnx";
+const MODEL_NAME: &str = "htdemucs.onnx";
 
 impl DemucsModel {
     pub fn new() -> Result<Self, String> {
@@ -69,45 +69,38 @@ impl DemucsModel {
         samples: &[f32],
         sample_rate: u32,
     ) -> Result<Vec<Vec<f32>>, String> {
-        if samples.len() < 4 {
+        if samples.len() < 2 {
             return Ok(vec![vec![], vec![], vec![], vec![]]);
         }
         
-        let target_sr = 16000;
-        let ratio = if sample_rate as f64 > target_sr as f64 {
-            target_sr as f64 / sample_rate as f64
-        } else {
-            1.0
-        };
-        
-        let new_len = (samples.len() as f64 * ratio) as usize;
-        let mut resampled = vec![0.0f32; new_len];
-        
-        for i in 0..samples.len() {
-            let idx = (i as f64 * ratio) as usize;
-            if idx < new_len {
-                resampled[idx] = samples[i];
-            }
-        }
+        let stereo_len = samples.len();
         
         let input_tensor = Tensor::<f32>::from_array(
-            ([1usize, 2usize, new_len], resampled.into_boxed_slice())
+            ([1usize, 2usize, stereo_len / 2], samples.to_vec())
         ).map_err(|e| format!("Tensor creation error: {}", e))?;
         
         let session = self.get_session()?;
         let outputs = session.run(ort::inputs![input_tensor])
             .map_err(|e| format!("Inference error: {}", e))?;
         
-        let output_0 = &outputs[0];
-        let output_1 = &outputs[1];
-        let output_2 = &outputs[2];
-        let output_3 = &outputs[3];
+        let output = &outputs[0];
+        let (_, data) = output.try_extract_tensor::<f32>().map_err(|e| format!("Extract: {}", e))?;
+        let flat: Vec<f32> = data.to_vec();
         
-        let (_, data0) = output_0.try_extract_tensor::<f32>().map_err(|e| format!("Extract 0: {}", e))?;
-        let (_, data1) = output_1.try_extract_tensor::<f32>().map_err(|e| format!("Extract 1: {}", e))?;
-        let (_, data2) = output_2.try_extract_tensor::<f32>().map_err(|e| format!("Extract 2: {}", e))?;
-        let (_, data3) = output_3.try_extract_tensor::<f32>().map_err(|e| format!("Extract 3: {}", e))?;
+        let out_samples = flat.len() / (4 * 2);
         
-        Ok(vec![data0.to_vec(), data1.to_vec(), data2.to_vec(), data3.to_vec()])
+        let mut stems = Vec::new();
+        for s in 0..4 {
+            let mut stem = vec![0.0f32; out_samples];
+            for t in 0..out_samples {
+                let idx = s * 2 * out_samples + t;
+                if idx < flat.len() {
+                    stem[t] = flat[idx];
+                }
+            }
+            stems.push(stem);
+        }
+        
+        Ok(stems)
     }
 }
