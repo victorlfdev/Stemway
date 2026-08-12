@@ -188,6 +188,17 @@ tokio = { version = "1", features = ["full"] }
 
 ## 📅 Implementação por Fases
 
+### Regra de Pesquisa Obrigatória
+
+> **Antes de iniciar qualquer nova fase** (ou ao encontrar ≥2 erros de compilation consecutivos):
+> 1. Pesquisar a **documentação oficial atualizada** das crates/libraries em uso
+> 2. Verificar a **versão exata** no `Cargo.toml` e buscar docs correspondentes
+> 3. Consultar exemplos reais no [docs.rs](https://docs.rs) ou no [crates.io](https://crates.io)
+>
+> **Motivo:** APIs mudam entre versões. Usar exemplos de versões desatualizadas gera horas de debugging evitável.
+
+---
+
 ### Fase 1: Tauri + React Setup (3-4 dias)
 - [ ] `cargo tauri init stem-separator`
 - [ ] Configurar React + Vite + TailwindCSS
@@ -206,16 +217,19 @@ tokio = { version = "1", features = ["full"] }
 - [ ] Testar com arquivos reais
 
 ### Fase 3: ONNX Inference (4-5 dias)
-- [ ] Configurar `ort` crate
-- [ ] Implementar `SessionManager`:
-  - Carregar modelo
-  - Download automático (primeiro uso)
-  - Verificar checksum
-- [ ] Implementar `InferenceRunner`:
-  - PCM → Float32 tensor
-  - `session.run()`
-  - Output → 4 × stereo Float32
-- [ ] Testar com áudio
+- [x] Configurar `ort` 2.0.0-rc.13 crate
+- [x] Implementar `DemucsModel`:
+  - Carregar modelo ONNX
+  - Download automático (primeiro uso) → cache dir
+  - Verificar checksum (futuro)
+- [x] Implementar `InferenceRunner`:
+  - PCM → Float32 tensor ([1, 2, samples])
+  - `session.run(ort::inputs![input])`
+  - Output → 4 × Float32 (drums, bass, vocals, other)
+- [x] Implementar `ChunkProcessor`:
+  - Dividir em chunks de ~10s
+  - Merge com overlap-add
+- [x] Testar com áudio (4 testes passing)
 
 ### Fase 4: Overlap-Add Chunking (2-3 dias)
 - [ ] Implementar `ChunkProcessor`:

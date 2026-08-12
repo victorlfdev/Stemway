@@ -23,3 +23,16 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.11.3" }
 tauri-plugin-log = "2"
+symphonia = { version = "0.5", features = ["wav", "mp3", "pcm"] }
+symphonia-core = "0.5"
+symphonia-format-riff = "0.5"
+symphonia-codec-pcm = "0.5"
+rodio = "0.19"
+rand = "0.8"
+num = "0.4"
+ort = { version = "2.0.0-rc.13", features = ["ndarray"] }
+ureq = "2"
+directories = "5"
+
+[features]
+default = []
