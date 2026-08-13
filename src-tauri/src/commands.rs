@@ -108,8 +108,20 @@ pub async fn process_file(
             crate::bs_roformer_cli::ensure_bs_roformer_installed()?;
 
             let bs_output_dir = output_base.join("bs-roformer-infer").join(&track_name);
+            eprintln!("[commands] Creating bs-roformer output dir: {}", bs_output_dir.display());
             std::fs::create_dir_all(&bs_output_dir)
                 .map_err(|e| format!("Failed to create bs-roformer output dir: {}", e))?;
+
+            let temp_input_dir = bs_output_dir.join("input");
+            eprintln!("[commands] Creating temp input dir: {}", temp_input_dir.display());
+            std::fs::create_dir_all(&temp_input_dir)
+                .map_err(|e| format!("Failed to create temp input dir: {}", e))?;
+
+            let temp_input_file = temp_input_dir.join(&track_name).with_extension("wav");
+            eprintln!("[commands] Copying input file to: {}", temp_input_file.display());
+            std::fs::copy(input_path, &temp_input_file)
+                .map_err(|e| format!("Failed to copy input file to temp dir: {}", e))?;
+            eprintln!("[commands] Temp input file size: {} bytes", temp_input_file.metadata().ok().map(|m| m.len()).unwrap_or(0));
 
             let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<crate::bs_roformer_cli::BsRoformerProgress>();
 
@@ -123,19 +135,14 @@ pub async fn process_file(
                 });
             }
 
-            crate::bs_roformer_cli::run_bs_roformer_cli_with_progress(
-                input_path,
+            let stem_pairs = crate::bs_roformer_cli::run_bs_roformer_cli_with_progress(
+                &temp_input_dir,
                 &bs_output_dir,
                 move |prog: crate::bs_roformer_cli::BsRoformerProgress| {
                     let _ = tx.send(prog);
                 },
             )
             .await?;
-
-            let stem_pairs = crate::bs_roformer_output::parse_output(
-                bs_output_dir.to_str().ok_or("Invalid bs-roformer output dir")?,
-                "bs-roformer",
-            )?;
 
             let paths: Vec<String> = stem_pairs.iter().map(|(_, p)| p.clone()).collect();
 
