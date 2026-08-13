@@ -1,3 +1,7 @@
+pub mod bs_roformer_cli;
+pub mod bs_roformer_output;
+pub mod bs_roformer_cpp_cli;
+pub mod bs_roformer_cpp_output;
 pub mod demucs_cli;
 pub mod demucs_output;
 pub mod commands;
@@ -14,6 +18,7 @@ pub fn tauri_app() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             let scope = app.fs_scope();
             let cache_dir = directories::ProjectDirs::from("", "", "stem-separator")
@@ -27,6 +32,8 @@ pub fn tauri_app() {
         .invoke_handler(tauri::generate_handler![
             commands::process_file,
             commands::read_stem_as_base64,
+            commands::open_output_folder,
+            commands::get_file_size,
         ])
         .run(tauri::generate_context!())
         .expect("error while running stem separator tauri app");

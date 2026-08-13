@@ -1,485 +1,181 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
-import { invoke } from '@tauri-apps/api/core'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { open } from '@tauri-apps/plugin-dialog'
-import TransportBar from './components/TransportBar'
-import TrackRow from './components/TrackRow'
-import TimeRuler from './components/TimeRuler'
+import { invoke } from '@tauri-apps/api/core'
+import Dropzone from './components/Dropzone'
+import ModelSelector from './components/ModelSelector'
+import FileInfo from './components/FileInfo'
+import ProgressBar from './components/ProgressBar'
+import StemResults from './components/StemResults'
+import ErrorBanner from './components/ErrorBanner'
 
-export function formatDuration(seconds) {
-  const mins = Math.floor(seconds / 60)
-  const secs = Math.floor(seconds %  60)
-  return `${mins}:${secs.toString().padStart(2, '0')}`
+const EVENT_MAP = {
+  'demucs': 'demucs_progress',
+  'bs-roformer': 'bs_roformer_progress',
+  'bs-roformer-cpp': 'bs_roformer_cpp_progress'
 }
 
-const STEMS = [
-  { name: 'Bass', color: '#f97316' },
-  { name: 'Drums', color: '#4ade80' },
-  { name: 'Guitar', color: '#eab308' },
-  { name: 'Other', color: '#a855f7' },
-  { name: 'Piano', color: '#e11d48' },
-  { name: 'Vocals', color: '#3b82f6' },
-]
-
 function App() {
+  const [selectedModel, setSelectedModel] = useState('demucs')
+  const [selectedFile, setSelectedFile] = useState(null)
   const [metadata, setMetadata] = useState(null)
   const [stemPaths, setStemPaths] = useState([])
-  const [stemBase64, setStemBase64] = useState({})
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState({ stage: '', percent: 0, message: '' })
   const [error, setError] = useState(null)
-  const [loadingStems, setLoadingStems] = useState(false)
+  const unlistenRef = useRef(null)
 
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [isStopped, setIsStopped] = useState(true)
-  const [currentTime, setCurrentTime] = useState(0)
-  const [globalVolume, setGlobalVolume] = useState(0.8)
-  const [zoom, setZoom] = useState(1)
-  const [trackStates, setTrackStates] = useState(
-    STEMS.map(() => ({ muted: false, solo: false, volume: 1 }))
-  )
-  const [audioLoaded, setAudioLoaded] = useState({})
-
-  const audioRefs = useRef({})
-  const animFrameRef = useRef(null)
-  const isPlayingRef = useRef(false)
-  const metadataRef = useRef(null)
-  const currentTimeRef = useRef(0)
-  const trackStatesRef = useRef(trackStates)
-  const anySoloRef = useRef(false)
-  const allMutedRef = useRef(true)
-  const globalVolumeRef = useRef(0.8)
-
-  const setAudioRef = useCallback((index, audioEl) => {
-    if (audioEl) {
-      audioRefs.current[index] = audioEl
-      setAudioLoaded((prev) => ({ ...prev, [index]: true }))
+  const clearFile = useCallback(() => {
+    setSelectedFile(null)
+    setMetadata(null)
+    setStemPaths([])
+    setProcessing(false)
+    setProgress({ stage: '', percent: 0, message: '' })
+    setError(null)
+    if (unlistenRef.current) {
+      unlistenRef.current()
+      unlistenRef.current = null
     }
   }, [])
 
-  useEffect(() => {
-    isPlayingRef.current = isPlaying
-  }, [isPlaying])
+  const dismissError = useCallback(() => {
+    setError(null)
+  }, [])
 
-  useEffect(() => {
-    metadataRef.current = metadata
-  }, [metadata])
+  const handleFileSelect = useCallback((path) => {
+    clearFile()
+    setSelectedFile(path)
+  }, [clearFile])
 
-  useEffect(() => {
-    currentTimeRef.current = currentTime
-  }, [currentTime])
-
-  useEffect(() => {
-    trackStatesRef.current = trackStates
-  }, [trackStates])
-
-  useEffect(() => {
-    globalVolumeRef.current = globalVolume
-  }, [globalVolume])
-
-  const allMuted = trackStates.every((t) => t.muted)
-  const anySolo = trackStates.some((t) => t.solo)
-
-  useEffect(() => {
-    anySoloRef.current = anySolo
-    allMutedRef.current = allMuted
-  }, [anySolo, allMuted])
-
-  useEffect(() => {
-    window.__onSeek = (time) => {
-      Object.values(audioRefs.current).forEach((audio) => {
-        if (audio) audio.currentTime = time
-      })
-      setCurrentTime(time)
-      if (!isPlaying) {
-        Object.values(audioRefs.current).forEach((audio) => {
-          if (audio) audio.pause()
-        })
-      }
+  const setupProgressListener = useCallback(async () => {
+    if (unlistenRef.current) {
+      unlistenRef.current()
     }
-  }, [isPlaying])
 
-  const loadStemBase64 = useCallback(async (stemIndex) => {
-    if (stemPaths[stemIndex] && !stemBase64[stemIndex]) {
-      try {
-        const result = await invoke('read_stem_as_base64', { path: stemPaths[stemIndex] })
-        setStemBase64((prev) => ({ ...prev, [stemIndex]: result.data }))
-      } catch (e) {
-        console.error(`Failed to load stem ${stemIndex}:`, e)
-      }
-    }
-  }, [stemPaths, stemBase64])
+    const eventName = EVENT_MAP[selectedModel] || 'demucs_progress'
 
-  const handleSelectFile = async () => {
     try {
-      const selected = await open({
-        multiple: false,
-        directory: false,
-        filters: [{
-          name: 'Audio',
-          extensions: ['wav', 'mp3', 'flac', 'ogg', 'oga', 'opus', 'wma', 'aiff', 'aif']
-        }]
+      unlistenRef.current = await listen(eventName, (event) => {
+        const data = event.payload
+        if (data && typeof data.percent === 'number') {
+          setProgress({
+            stage: data.stage || data.message || 'Processing',
+            percent: data.percent,
+            message: data.message || ''
+          })
+        }
+      })
+    } catch (err) {
+      console.error('Failed to listen for progress:', err)
+    }
+  }, [selectedModel])
+
+  const handleSeparate = useCallback(async () => {
+    if (!selectedFile) return
+
+    setProcessing(true)
+    setProgress({ stage: 'Starting', percent: 0, message: 'Initializing...' })
+
+    await setupProgressListener()
+
+    try {
+      const result = await invoke('process_file', {
+        path: selectedFile,
+        model: selectedModel,
       })
 
-      if (selected) {
-        setError(null)
-        setProcessing(true)
-        setProgress({ stage: 'Loading', percent: 0, message: 'Analyzing...' })
-
-        const result = await invoke('process_file', { path: selected })
-        setMetadata(result)
-        setStemPaths(result.paths)
-        setCurrentTime(0)
-        setIsPlaying(false)
-        setIsStopped(true)
-        setTrackStates(STEMS.map(() => ({ muted: false, solo: false, volume: 1 })))
-        setStemBase64({})
-        setProcessing(false)
-        setProgress({ stage: 'Complete', percent: 100, message: 'Done!' })
-      }
+      setMetadata(result)
+      setStemPaths(result.paths)
+      setProgress({ stage: 'Complete', percent: 100, message: 'Done!' })
+      setProcessing(false)
     } catch (err) {
       setError(`Error: ${err}`)
       setProcessing(false)
     }
-  }
+  }, [selectedFile, selectedModel, setupProgressListener])
 
-  useEffect(() => {
-    let unlisten = null
-    listen('demucs_progress', (e) => {
-      setProgress((prev) => ({ ...prev, ...e.payload }))
-      if (e.payload.stage === 'Complete') {
-        setProcessing(false)
-      }
-    }).then((fn) => { unlisten = fn })
-    return () => { if (unlisten) unlisten() }
-  }, [])
-
-  useEffect(() => {
-    if (!stemPaths.length) return
-    if (stemPaths.every((p) => stemBase64[stemPaths.indexOf(p)])) {
-      return
+  const handleOpenOutputFolder = useCallback(async (path) => {
+    try {
+      await invoke('open_output_folder', { path })
+    } catch (err) {
+      setError(`Failed to open folder: ${err}`)
     }
-    setLoadingStems(true)
-    const timer = setTimeout(() => {
-      stemPaths.forEach((_, i) => loadStemBase64(i))
-      const checkInterval = setInterval(() => {
-        const allLoaded = stemPaths.every((p, i) => stemBase64[i])
-        if (allLoaded) {
-          setLoadingStems(false)
-          clearInterval(checkInterval)
-        }
-      }, 500)
-    }, 100)
-    return () => { clearTimeout(timer) }
-  }, [stemPaths])
-
-  const updatePlayback = useCallback(() => {
-    let earliest = Infinity
-    const duration = metadataRef.current?.duration_secs || 0
-
-    Object.entries(audioRefs.current).forEach(([idx, audio]) => {
-      if (audio && !audio.paused) {
-        if (audio.currentTime < earliest) earliest = audio.currentTime
-        if (audio.currentTime >= duration) {
-          audio.pause()
-          audio.currentTime = 0
-          setIsPlaying(false)
-          setIsStopped(true)
-          if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
-          return
-        }
-      }
-    })
-
-    if (!isPlayingRef.current) {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
-      return
-    }
-
-    setCurrentTime(earliest === Infinity ? 0 : earliest)
-    animFrameRef.current = requestAnimationFrame(updatePlayback)
   }, [])
 
-  useEffect(() => {
-    if (isPlaying) {
-      animFrameRef.current = requestAnimationFrame(updatePlayback)
-    }
-    return () => {
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
-    }
-  }, [isPlaying])
-
-  useEffect(() => {
-    if (!isPlayingRef.current) {
-      Object.values(audioRefs.current).forEach((audio) => {
-        if (audio) {
-          audio.volume = 0
-          audio.pause()
-        }
-      })
-    }
-  }, [allMuted, anySolo, isPlaying])
-
-  useEffect(() => {
-    Object.entries(audioRefs.current).forEach(([idx, audio]) => {
-      if (!audio) return
-      const state = trackStates[parseInt(idx)] || { muted: false, solo: false, volume: 1 }
-      const trackMuted = state.muted || (anySolo && !state.solo) || allMuted
-      const trackVolume = (trackMuted ? 0 : state.volume) * globalVolume
-      audio.volume = trackVolume
-    })
-  }, [trackStates, globalVolume, allMuted, anySolo])
-
-  const playAll = useCallback(() => {
-    const duration = metadataRef.current?.duration_secs || 0
-    const currentTrackStates = trackStatesRef.current
-    const currentAnySolo = anySoloRef.current
-    const currentAllMuted = allMutedRef.current
-    const currentCurrentTime = currentTimeRef.current
-
-    Object.entries(audioRefs.current).forEach(([idx, audio]) => {
-      const state = currentTrackStates[parseInt(idx)] || { muted: false, solo: false, volume: 1 }
-      const trackMuted = state.muted || (currentAnySolo && !state.solo) || currentAllMuted
-      if (audio && !trackMuted && audioLoaded[parseInt(idx)]) {
-        audio.currentTime = currentCurrentTime
-        audio.play().catch((e) => console.error('play error:', e))
-      }
-    })
-    setIsPlaying(true)
-    setIsStopped(false)
-  }, [audioLoaded])
-
-  const pauseAll = useCallback(() => {
-    Object.values(audioRefs.current).forEach((audio) => {
-      if (audio) audio.pause()
-    })
-    setIsPlaying(false)
-  }, [])
-
-  const stopAll = useCallback(() => {
-    Object.values(audioRefs.current).forEach((audio) => {
-      if (audio) {
-        audio.pause()
-        audio.currentTime = 0
-      }
-    })
-    setCurrentTime(0)
-    setIsPlaying(false)
-    setIsStopped(true)
-  }, [])
-
-  const rewind = useCallback(() => {
-    stopAll()
-  }, [stopAll])
-
-  const handleVolumeChange = useCallback((index, volume) => {
-    setTrackStates((prev) => {
-      const next = [...prev]
-      next[index] = { ...next[index], volume }
-      return next
-    })
-  }, [])
-
-  const toggleMute = useCallback((index) => {
-    setTrackStates((prev) => {
-      const next = [...prev]
-      next[index] = { ...next[index], muted: !next[index].muted }
-      return next
-    })
-  }, [])
-
-  const toggleSolo = useCallback((index) => {
-    setTrackStates((prev) => {
-      const next = [...prev]
-      next[index] = { ...next[index], solo: !next[index].solo }
-      return next
-    })
-  }, [])
-
-  const handleZoomIn = () => setZoom((z) => Math.min(z * 1.5, 8))
-  const handleZoomOut = () => setZoom((z) => Math.max(z / 1.5, 0.5))
-
-  const isLoadingStems = loadingStems || stemPaths.some((p, i) => !stemBase64[i])
+  const fileName = selectedFile ? selectedFile.split('/').pop() : null
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col">
-      <header className="px-4 py-2 border-b border-[#1a1a1a] flex items-center justify-between" style={{ height: '36px' }}>
+      <header className="px-6 py-3 border-b border-[#1a1a1a] flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-sm">🎵</span>
+          <span className="text-lg">🎵</span>
           <h1 className="text-sm font-semibold">Stem Separator</h1>
-          <span className="text-[10px] text-gray-600">v0.1.0</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-[10px] text-gray-500">HTDemucs 6-s</span>
-          {!metadata && (
-            <button
-              onClick={handleSelectFile}
-              disabled={processing || isLoadingStems}
-              className="text-xs bg-green-600 hover:bg-green-500 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1 rounded transition-colors"
-            >
-              Open Audio File
-            </button>
-          )}
+          <span className="text-[10px] text-gray-600">v0.2.1</span>
         </div>
       </header>
 
-      {!metadata && !processing && !isLoadingStems && (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center max-w-md">
-            <div className="text-5xl mb-4">🎵</div>
-            <h2 className="text-xl font-semibold mb-2">Stem Separator</h2>
-            <p className="text-gray-500 mb-6 text-sm">
-              Separate audio into stems using AI. <br />
-              Supports WAV, MP3, FLAC, OGG.
-            </p>
-            <button
-              onClick={handleSelectFile}
-              disabled={isLoadingStems}
-              className="bg-green-600 hover:bg-green-500 text-white font-semibold px-8 py-3 rounded-xl transition-colors text-sm disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              Open Audio File
-            </button>
-            <p className="text-gray-600 text-xs mt-4">Powered by HTDemucs (demucs CLI)</p>
-          </div>
-        </div>
-      )}
-
-      {processing && (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="text-sm font-medium mb-2">{progress.stage || 'Processing'}</div>
-            <div className="text-xs text-gray-400 mb-3">{progress.message || 'Please wait...'}</div>
-            <div className="w-48 bg-[#1a1a1a] rounded-full h-2 overflow-hidden mx-auto">
-              <div
-                className="bg-green-600 h-full rounded-full transition-all duration-300"
-                style={{ width: `${progress.percent || 0}%` }}
+      <div className="flex-1 flex flex-col items-center px-6 py-12">
+        <div className="w-full max-w-lg">
+          {!selectedFile && !processing && (
+            <>
+              <ModelSelector
+                selectedModel={selectedModel}
+                onSelect={setSelectedModel}
               />
-            </div>
-            <div className="text-xs text-gray-500 mt-1">{Math.round(progress.percent || 0)}%</div>
-          </div>
-        </div>
-      )}
+              <div className="mt-6">
+                <Dropzone onFileSelect={handleFileSelect} />
+              </div>
+            </>
+          )}
 
-      {isLoadingStems && metadata && (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="text-sm font-medium mb-2">Loading stems</div>
-            <div className="text-xs text-gray-400">Preparing audio data...</div>
-            <div className="w-48 bg-[#1a1a1a] rounded-full h-2 overflow-hidden mx-auto mt-3">
-              <div
-                className="bg-green-600 h-full rounded-full animate-pulse"
-                style={{ width: '70%' }}
+          {processing && selectedFile && (
+            <ProgressBar {...progress} />
+          )}
+
+          {selectedFile && !processing && metadata && (
+            <>
+              <FileInfo
+                fileName={fileName}
+                duration={metadata.duration_secs}
+                sampleRate={metadata.sample_rate}
+                channels={metadata.channels}
+                model={metadata.model}
+                onNewFile={clearFile}
               />
-            </div>
-          </div>
+              <StemResults
+                stemPaths={stemPaths}
+                onOpenFolder={handleOpenOutputFolder}
+                onNewFile={clearFile}
+              />
+            </>
+          )}
+
+          {selectedFile && !processing && !metadata && (
+            <>
+              <FileInfo
+                fileName={fileName}
+                duration={0}
+                sampleRate={0}
+                channels={0}
+                model={selectedModel}
+                onNewFile={clearFile}
+              />
+              <button
+                onClick={handleSeparate}
+                className="w-full bg-green-600 hover:bg-green-500 text-white font-semibold px-8 py-3.5 rounded-xl transition-colors text-sm shadow-lg shadow-green-600/20"
+              >
+                Separate Stems
+              </button>
+            </>
+          )}
         </div>
-      )}
-
-      {metadata && !processing && !isLoadingStems && (
-        <>
-          <TransportBar
-            isPlaying={isPlaying}
-            isStopped={isStopped}
-            currentTime={currentTime}
-            totalDuration={metadata.duration_secs}
-            onPlay={playAll}
-            onPause={pauseAll}
-            onStop={stopAll}
-            onRewind={rewind}
-          />
-
-          <div className="flex-1 flex overflow-hidden">
-            <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="overflow-x-auto">
-                <TimeRuler duration={metadata.duration_secs} zoom={zoom} />
-                <div className="relative">
-                  {STEMS.map((stem, i) => (
-                    <TrackRow
-                      key={stem.name}
-                      name={stem.name}
-                      color={stem.color}
-                      stemBase64={stemBase64[i] || null}
-                      volume={trackStates[i]?.volume || 1}
-                      muted={trackStates[i]?.muted || false}
-                      solo={trackStates[i]?.solo || false}
-                      onVolumeChange={(v) => handleVolumeChange(i, v)}
-                      onMute={() => toggleMute(i)}
-                      onSolo={() => toggleSolo(i)}
-                      currentTime={currentTime}
-                      duration={metadata.duration_secs}
-                      zoom={zoom}
-                      onSetAudioRef={(el) => setAudioRef(i, el)}
-                      audioLoaded={audioLoaded[i] || false}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="w-40 border-l border-[#1a1a1a] bg-[#111] flex flex-col">
-              <div className="p-3 border-b border-[#1a1a1a]">
-                <div className="text-xs font-medium mb-2">Master</div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setGlobalVolume((v) => Math.max(0, v - 0.1))}
-                    className="w-6 h-5 bg-[#333] hover:bg-[#444] rounded text-[10px] flex items-center justify-center"
-                  >-</button>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={globalVolume}
-                    onChange={(e) => setGlobalVolume(parseFloat(e.target.value))}
-                    className="flex-1 accent-green-500 h-1"
-                  />
-                  <button
-                    onClick={() => setGlobalVolume((v) => Math.min(1, v + 0.1))}
-                    className="w-6 h-5 bg-[#333] hover:bg-[#444] rounded text-[10px] flex items-center justify-center"
-                  >+</button>
-                </div>
-                <div className="text-xs font-mono text-gray-400 mt-1 text-center">{Math.round(globalVolume * 100)}%</div>
-              </div>
-
-              <div className="p-3 border-b border-[#1a1a1a]">
-                <div className="text-xs font-medium mb-2">Zoom</div>
-                <div className="flex gap-1">
-                  <button
-                    onClick={handleZoomOut}
-                    className="flex-1 bg-[#333] hover:bg-[#444] rounded text-[10px] py-1 transition-colors"
-                  >-</button>
-                  <span className="flex-1 text-center text-xs text-gray-400 py-1">{Math.round(zoom * 100)}%</span>
-                  <button
-                    onClick={handleZoomIn}
-                    className="flex-1 bg-[#333] hover:bg-[#444] rounded text-[10px] py-1 transition-colors"
-                  >+</button>
-                </div>
-              </div>
-
-              <div className="p-3">
-                <div className="text-xs font-medium mb-2">Info</div>
-                <div className="text-[10px] text-gray-500 space-y-1">
-                  <div>Duration: {formatDuration(metadata.duration_secs)}</div>
-                  <div>Sample Rate: {metadata.sample_rate} Hz</div>
-                  <div>Channels: {metadata.channels === 1 ? 'Mono' : metadata.channels === 2 ? 'Stereo' : metadata.channels}</div>
-                  <div>Stems: {stemPaths.length}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-
-
+      </div>
 
       {error && (
-        <div className="fixed bottom-4 left-4 right-4 bg-red-900/90 border border-red-700 rounded-xl p-3 text-red-200 text-sm">
-          {error}
-        </div>
+        <ErrorBanner message={error} onDismiss={dismissError} />
       )}
 
-      <footer className="px-4 py-1.5 border-t border-[#1a1a1a] text-center text-[9px] text-gray-600">
-        Stem Separator v0.1.0 — HTDemucs 6-stem model (demucs CLI)
+      <footer className="px-6 py-2 border-t border-[#1a1a1a] text-center text-[9px] text-gray-600">
+        Stem Separator v0.2.1 — HTDemucs, BS-RoFormer & BS-RoFormer.cpp
       </footer>
     </div>
   )
