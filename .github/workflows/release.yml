@@ -90,9 +90,7 @@ jobs:
         run: cat src-tauri\tauri.conf.json
 
       - name: Build Windows
-        run: |
-          npm install -g @tauri-apps/cli
-          tauri build --target x86_64-pc-windows-msvc
+        run: npx tauri build --target x86_64-pc-windows-msvc
 
       - name: Upload Windows bundle
         if: always()
