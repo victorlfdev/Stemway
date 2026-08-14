@@ -92,7 +92,7 @@ jobs:
           echo "NPM version: $(npm -v)"
           dir src-tauri\Cargo.toml
           dir node_modules\.bin\tauri.cmd
-          tauri --version
+          npx tauri --version
         shell: cmd
 
       - name: Build Windows
