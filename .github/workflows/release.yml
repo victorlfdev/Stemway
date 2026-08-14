@@ -74,6 +74,14 @@ jobs:
       - name: Install Rust
         run: rustup update stable && rustup default stable && rustup target add x86_64-pc-windows-msvc
 
+      - name: Verify MSVC
+        run: |
+          if (Get-Command cl.exe -ErrorAction SilentlyContinue) { echo "MSVC found" } else { echo "MSVC not found" }
+          dir C:/Program Files (x86)/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/ 2>$null
+          dir C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/ 2>$null
+          dir C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/ 2>$null
+          dir C:/Program Files/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/ 2>$null
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:
