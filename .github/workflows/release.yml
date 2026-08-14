@@ -62,9 +62,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-bundles
-          paths:
-            - src-tauri/target/*/release/bundle/deb/*.deb
-            - src-tauri/target/*/release/bundle/rpm/*.rpm
+          paths: |
+            src-tauri/target/*/release/bundle/deb/*.deb
+            src-tauri/target/*/release/bundle/rpm/*.rpm
 
   build-windows:
     runs-on: windows-latest
@@ -104,8 +104,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-bundle
-          paths:
-            - src-tauri/target/*/release/bundle/msi/*.msi
+          paths: |
+            src-tauri/target/*/release/bundle/msi/*.msi
 
   release:
     needs: [build-linux, build-windows]
