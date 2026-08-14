@@ -72,7 +72,7 @@ stemway/
 
 ## License
 
-[License pending]
+[MIT License](LICENSE)
 
 ## Acknowledgements
 
