@@ -8,7 +8,7 @@ on:
       - 'v*'
 
 env:
-  NODE_VERSION: '18'
+  NODE_VERSION: '22'
   RUST_VERSION: '1.77.2'
 
 jobs:
@@ -87,10 +87,10 @@ jobs:
         run: npm ci
 
       - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2"
+        run: npm install -g @tauri-apps/cli
 
       - name: Build Windows
-        run: tauri build --target x86_64-pc-windows-msvc
+        run: npm run tauri build -- --target x86_64-pc-windows-msvc
 
       - name: Upload Windows bundle
         if: always()
