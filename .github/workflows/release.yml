@@ -87,7 +87,7 @@ jobs:
         run: npm ci
 
       - name: Build Windows
-        run: npm run tauri build -- --target x86_64-pc-windows-msvc
+        run: npx tauri build --target x86_64-pc-windows-msvc
 
       - name: Upload Windows bundle
         if: always()
