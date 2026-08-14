@@ -34,6 +34,7 @@ pub fn tauri_app() {
             commands::read_stem_as_base64,
             commands::open_output_folder,
             commands::get_file_size,
+            commands::probe_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running stem separator tauri app");

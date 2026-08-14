@@ -15,6 +15,14 @@ pub struct ProcessResult {
 }
 
 #[derive(serde::Serialize)]
+pub struct FileProbeResult {
+    pub duration_secs: f64,
+    pub sample_rate: u32,
+    pub channels: u16,
+    pub file_size_bytes: u64,
+}
+
+#[derive(serde::Serialize)]
 pub struct FileSizeResult {
     pub size: u64,
 }
@@ -44,6 +52,17 @@ pub async fn read_stem_as_base64(path: String) -> Result<StemFileData, String> {
     let encoded = BASE64.encode(&bytes);
     let data = format!("data:{mime};base64,{}", encoded);
     Ok(StemFileData { data })
+}
+
+#[tauri::command]
+pub async fn probe_file(path: String) -> Result<FileProbeResult, String> {
+    let (duration_secs, sample_rate, channels, file_size_bytes) = crate::info::probe_wav(&path)?;
+    Ok(FileProbeResult {
+        duration_secs,
+        sample_rate,
+        channels,
+        file_size_bytes,
+    })
 }
 
 #[tauri::command]

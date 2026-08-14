@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import Dropzone from './components/Dropzone'
 import ModelSelector from './components/ModelSelector'
 import FileInfo from './components/FileInfo'
-import ProgressBar from './components/ProgressBar'
+import LoadingScreen from './components/LoadingScreen'
 import StemResults from './components/StemResults'
 import ErrorBanner from './components/ErrorBanner'
 
@@ -15,14 +15,15 @@ const EVENT_MAP = {
 }
 
 const MODELS = [
-  { value: 'bs-roformer-cpp', label: '6-Track Premium', description: 'Best quality (BS-RoFormer.cpp). 6 instruments. GPU accelerated (~30sec) or CPU (~25min)', recommended: true },
-  { value: 'demucs', label: '4-Track Standard', description: 'Good quality (HTDemucs). 4 instruments. Fast CPU processing', recommended: false },
-  { value: 'bs-roformer', label: '4-Track Essential', description: 'Alternative (BS-RoFormer). 4 instruments. Slower, CPU only', recommended: false }
+  { value: 'bs-roformer-cpp', label: '6-Track Premium', description: 'Best quality (BS-RoFormer.cpp). 6 instruments. GPU accelerated (~30sec) or CPU (~25min)', recommended: true, meta: 'Recommended for best results' },
+  { value: 'demucs', label: '4-Track Standard', description: 'Good quality (HTDemucs). 4 instruments. Fast CPU processing', recommended: false, meta: 'Fast CPU processing' },
+  { value: 'bs-roformer', label: '4-Track Essential', description: 'Alternative (BS-RoFormer). 4 instruments. Slower, CPU only', recommended: false, meta: 'CPU only · Slower' }
 ]
 
 function App() {
   const [selectedModel, setSelectedModel] = useState('bs-roformer-cpp')
   const [selectedFile, setSelectedFile] = useState(null)
+  const [fileInfo, setFileInfo] = useState(null)
   const [metadata, setMetadata] = useState(null)
   const [stemPaths, setStemPaths] = useState([])
   const [processing, setProcessing] = useState(false)
@@ -33,6 +34,7 @@ function App() {
 
   const clearFile = useCallback(() => {
     setSelectedFile(null)
+    setFileInfo(null)
     setMetadata(null)
     setStemPaths([])
     setProcessing(false)
@@ -45,14 +47,24 @@ function App() {
     }
   }, [])
 
+  const probeAndSelectFile = useCallback(async (path) => {
+    clearFile()
+    setSelectedFile(path)
+    try {
+      const info = await invoke('probe_file', { path })
+      setFileInfo(info)
+    } catch (err) {
+      console.error('Failed to probe file:', err)
+    }
+  }, [clearFile])
+
   const dismissError = useCallback(() => {
     setError(null)
   }, [])
 
   const handleFileSelect = useCallback((path) => {
-    clearFile()
-    setSelectedFile(path)
-  }, [clearFile])
+    probeAndSelectFile(path)
+  }, [probeAndSelectFile])
 
   const setupProgressListener = useCallback(async () => {
     if (unlistenRef.current) {
@@ -131,7 +143,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col antialiased">
-      <header className="px-6 py-4 border-b border-[#1a1a1a] flex items-center justify-between">
+      <header className="px-6 py-3 border-b border-[#1a1a1a] flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-green-600/20 flex items-center justify-center">
             <svg className="w-4 h-4 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -140,7 +152,7 @@ function App() {
           </div>
           <div>
             <h1 className="text-sm font-semibold tracking-tight">Stem Separator</h1>
-            <span className="text-[10px] text-[#666]">v0.3.0</span>
+            <span className="text-[10px] text-[#888]">v0.3.0</span>
           </div>
         </div>
         {metadata && (
@@ -176,29 +188,18 @@ function App() {
             <div className="space-y-4">
               <FileInfo
                 fileName={fileName}
-                duration={0}
-                sampleRate={0}
-                channels={0}
+                duration={fileInfo?.duration_secs || 0}
+                sampleRate={fileInfo?.sample_rate || 0}
+                channels={fileInfo?.channels || 0}
                 model={selectedModel}
                 backend={null}
                 onNewFile={clearFile}
               />
-              <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-6">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-5 h-5 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
-                  <div>
-                    <div className="text-sm font-medium">Downloading model</div>
-                    <div className="text-xs text-[#888]">{progress.message || 'First-time setup. This may take a moment.'}</div>
-                  </div>
-                </div>
-                <div className="w-full bg-[#0f0f0f] rounded-full h-2 overflow-hidden">
-                  <div
-                    className="bg-green-600 h-full rounded-full transition-all duration-300"
-                    style={{ width: `${progress.percent}%` }}
-                  />
-                </div>
-                <div className="text-xs text-[#666] text-right mt-2">{Math.round(progress.percent)}%</div>
-              </div>
+              <LoadingScreen
+                stage={progress.stage}
+                message={progress.message || 'Downloading model...'}
+                percent={progress.percent}
+              />
             </div>
           )}
 
@@ -206,18 +207,17 @@ function App() {
             <div className="space-y-4">
               <FileInfo
                 fileName={fileName}
-                duration={metadata?.duration_secs || 0}
-                sampleRate={metadata?.sample_rate || 0}
-                channels={metadata?.channels || 0}
+                duration={fileInfo?.duration_secs || metadata?.duration_secs || 0}
+                sampleRate={fileInfo?.sample_rate || metadata?.sample_rate || 0}
+                channels={fileInfo?.channels || metadata?.channels || 0}
                 model={selectedModel}
                 backend={metadata?.backend || null}
                 onNewFile={clearFile}
               />
-              <ProgressBar
+              <LoadingScreen
                 stage={progress.stage}
+                message={progress.message || 'Processing audio...'}
                 percent={progress.percent}
-                message={progress.message}
-                model={selectedModel}
               />
             </div>
           )}
@@ -245,9 +245,9 @@ function App() {
             <div className="space-y-4">
               <FileInfo
                 fileName={fileName}
-                duration={0}
-                sampleRate={0}
-                channels={0}
+                duration={fileInfo?.duration_secs || 0}
+                sampleRate={fileInfo?.sample_rate || 0}
+                channels={fileInfo?.channels || 0}
                 model={selectedModel}
                 backend={null}
                 onNewFile={clearFile}
@@ -268,11 +268,11 @@ function App() {
       )}
 
       <footer className="px-6 py-3 border-t border-[#1a1a1a] flex items-center justify-between">
-        <span className="text-[9px] text-[#444] tracking-wide">
+        <span className="text-[9px] text-[#aaa] tracking-wide">
           Stem Separator — Local AI audio separation
         </span>
-        <span className="text-[9px] text-[#444] tracking-wide">
-          {selectedModelInfo?.label || MODELS[0].label} · 4-Track Standard · 4-Track Essential · 6-Track Premium
+        <span className="text-[9px] text-[#aaa] tracking-wide">
+          {selectedModelInfo?.label || MODELS[0].label}
         </span>
       </footer>
     </div>

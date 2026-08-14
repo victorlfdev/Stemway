@@ -12,7 +12,7 @@ Dark, studio-quality interface for a local-first AI audio separation tool. The a
 - **Surface:** `#0f0f0f` (elevated cards, slightly lighter)
 - **Border:** `#1a1a1a` (subtle separators), `#2a2a2a` (interactive borders)
 - **Text primary:** `#ffffff` (body, headings)
-- **Text secondary:** `#888` (descriptions), `#666` (labels, muted), `#555` (captions)
+- **Text secondary:** `#888` (descriptions), `#888` (labels, muted), `#777` (captions)
 - **Accent:** `#16a34a` green — primary actions, active states
 - **Stem colors:** `#ef4444` (vocals), `#f59e0b` (drums), `#3b82f6` (bass), `#8b5cf6` (other)
 
@@ -21,7 +21,7 @@ Dark, studio-quality interface for a local-first AI audio separation tool. The a
 - **Font family:** System stack (`-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif`)
 - **Heading:** 1rem (16px), semibold, `tracking-tight`
 - **Body:** 0.875rem (14px), normal weight
-- **Caption:** 0.75rem (12px), `text-[#555]`
+- **Caption:** 0.75rem (12px), `text-[#777]`
 - **Micro:** 0.625rem (10px), `tracking-wide`, uppercase labels
 - **Monospace:** Used for timecodes and percentage values
 
@@ -47,9 +47,14 @@ Dark, studio-quality interface for a local-first AI audio separation tool. The a
 - Radio-group layout with three model cards
 - Selected card: `bg-green-600/10 border-green-600/60`, subtle green glow `shadow-[0_0_20px_rgba(22,163,74,0.1)]`
 - Unselected: `bg-[#0f0f0f] border-[#2a2a2a]`, hover `border-[#3a3a3a]`
-- "BEST" badge: positioned at top-left of selected card, `text-[9px] bg-green-600 text-white`
-- Header: `text-xs text-[#666] font-medium uppercase tracking-wider`
-- Description: `text-xs leading-relaxed`
+- Focus ring: `focus-visible:ring-2 focus-visible:ring-green-600/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f0f0f]`
+- "BEST" badge: inline with model title, `text-[9px] bg-green-600 text-white px-1.5 py-0.5 rounded-full`, in a `flex items-center gap-2` container
+- Header: `text-xs text-[#888] font-medium uppercase tracking-wider`
+- Description: `text-xs leading-relaxed`, secondary text `text-[#888]` (selected: `text-green-200/70`)
+- Meta text: `text-[11px] font-medium tracking-wide`, `text-[#777]` (selected: `text-green-400`)
+- Transition: `transition-colors` on button (not `transition-all`)
+- Keyboard navigation: ArrowLeft/ArrowRight moves focus and selects; Home/End jumps to first/last; full keyboard accessibility
+- Empty state: displays "No separation models available" message instead of hiding the section
 
 ### FileInfo
 
@@ -113,12 +118,13 @@ Dark, studio-quality interface for a local-first AI audio separation tool. The a
 - Works at `1024px+` window size
 - Scales down to ~`768px` with comfortable padding
 - Model selector cards wrap gracefully on smaller screens
+- Model selector returns `null` if no models available (defensive guard)
 
 ## Accessibility
 
 - Keyboard focus: all interactive elements have visible focus styles via outline utilities
 - ARIA: radio groups for model selector, sliders for volume/seek, regions for stem players
-- Contrast: body text `#ffffff` on `#0a0a0a` (21:1), secondary text `#666` on `#0f0f0f` (6.6:1)
+- Contrast: body text `#ffffff` on `#0a0a0a` (21:1), secondary text `#888` on `#0f0f0f` (5.4:1), captions `#777` on `#0f0f0f` (4.6:1)
 - Touch targets: minimum `w-8 h-8` for toggles, `w-10 h-10` for primary buttons
 
 ## Anti-patterns
