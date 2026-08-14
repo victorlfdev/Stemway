@@ -335,7 +335,29 @@ async fn download_model_async(dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn check_and_resample_to_44100(input_path: &Path) -> Result<PathBuf, String> {
+pub fn convert_and_resample_if_needed(input_path: &Path) -> Result<PathBuf, String> {
+    const SUPPORTED_EXTENSIONS: &[&str; 10] = &[
+        "wav", "mp3", "flac", "ogg", "oga", "opus", "wma", "aiff", "aif", "m4a",
+    ];
+
+    let file_ext = input_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+
+    if !SUPPORTED_EXTENSIONS.contains(&file_ext.as_str()) {
+        return Err(format!(
+            "Unsupported audio format: '{}'. Supported formats: {}",
+            file_ext,
+            SUPPORTED_EXTENSIONS.join(", ")
+        ));
+    }
+
+    if file_ext == "wav" {
+        return Ok(input_path.to_path_buf());
+    }
+
     let probe = std::process::Command::new("ffprobe")
         .args([
             "-v", "quiet",
@@ -357,32 +379,36 @@ pub fn check_and_resample_to_44100(input_path: &Path) -> Result<PathBuf, String>
         .unwrap_or(0);
 
     if sample_rate == 44100 {
-        return Ok(input_path.to_path_buf());
+        eprintln!("Input {} is already 44100 Hz, converting to WAV...", file_ext);
+    } else {
+        eprintln!(
+            "Input {} at {} Hz, converting to WAV 44100 Hz...",
+            file_ext, sample_rate
+        );
     }
 
-    eprintln!(
-        "Input sample rate {} Hz != 44100 Hz required by BSRoformer. Resampling to 44100 Hz...",
-        sample_rate
-    );
+    let parent = input_path.parent().ok_or("Cannot determine parent directory")?;
+    let stem = input_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid input file stem")?;
 
-    let temp_path = input_path
-        .parent()
-        .map(|p| p.join(format!("temp_44100_{}.wav", std::process::id())))
-        .ok_or("Cannot create temp file")?;
+    let temp_path = parent.join(format!("temp_stem_sep_{}_{}.wav", stem, std::process::id()));
 
-    let resample = std::process::Command::new("ffmpeg")
+    let convert = std::process::Command::new("ffmpeg")
         .args([
             "-y",
             "-i", input_path.to_str().ok_or("Invalid input path")?,
             "-ar", "44100",
+            "-ac", "2",
             temp_path.to_str().ok_or("Invalid temp path")?,
         ])
         .output()
         .map_err(|e| format!("Failed to run ffmpeg (is ffmpeg installed?). Error: {}", e))?;
 
-    if !resample.status.success() {
-        let stderr = String::from_utf8_lossy(&resample.stderr);
-        return Err(format!("ffmpeg resample failed: {}", stderr));
+    if !convert.status.success() {
+        let stderr = String::from_utf8_lossy(&convert.stderr);
+        return Err(format!("ffmpeg conversion failed: {}", stderr));
     }
 
     Ok(temp_path)
@@ -402,7 +428,7 @@ where
     let output_dir_clone = output_dir.to_path_buf();
     let output_file = output_dir_clone.join("output.wav");
 
-    let input_for_binary = check_and_resample_to_44100(input_path)?;
+    let input_for_binary = convert_and_resample_if_needed(input_path)?;
     let is_temp_file = input_for_binary != input_path;
 
     let binary_dir = binary
