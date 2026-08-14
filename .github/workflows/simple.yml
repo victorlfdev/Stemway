@@ -1,0 +1,10 @@
+name: Simple
+on:
+  push:
+    branches:
+      - main
+jobs:
+  simple:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello
