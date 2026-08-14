@@ -89,7 +89,8 @@ jobs:
       - name: Build Windows
         run: |
           npm install -g @tauri-apps/cli
-          tauri build --target x86_64-pc-windows-msvc
+          tauri --version
+          tauri build --target x86_64-pc-windows-msvc --verbose
 
       - name: Upload Windows bundle
         if: always()
