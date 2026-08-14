@@ -1,4 +1,3 @@
-use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use tauri::Emitter as _;
 
 
@@ -35,23 +34,9 @@ pub fn get_file_size(path: String) -> Result<FileSizeResult, String> {
 }
 
 #[derive(serde::Serialize)]
-pub struct StemFileData {
-    pub data: String,
-}
-
-#[derive(serde::Serialize)]
 pub struct OpenFolderResult {
     pub success: bool,
     pub message: String,
-}
-
-#[tauri::command]
-pub async fn read_stem_as_base64(path: String) -> Result<StemFileData, String> {
-    let bytes = std::fs::read(&path).map_err(|e| format!("Failed to read stem file: {}", e))?;
-    let mime = "audio/wav";
-    let encoded = BASE64.encode(&bytes);
-    let data = format!("data:{mime};base64,{}", encoded);
-    Ok(StemFileData { data })
 }
 
 #[tauri::command]

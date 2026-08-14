@@ -165,8 +165,8 @@ function App() {
         )}
       </header>
 
-      <main className="flex-1 flex flex-col items-center px-6 py-8">
-        <div className="w-full max-w-2xl">
+      <main className="flex-1 flex flex-col items-center px-6 py-8 overflow-y-auto">
+        <div className="w-full max-w-2xl sm:max-w-4xl">
           {!selectedFile && !processing && !downloading && (
             <div className="space-y-8">
               <div className="text-center mb-4">

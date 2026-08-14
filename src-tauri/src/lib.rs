@@ -31,7 +31,6 @@ pub fn tauri_app() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::process_file,
-            commands::read_stem_as_base64,
             commands::open_output_folder,
             commands::get_file_size,
             commands::probe_file,
