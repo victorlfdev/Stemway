@@ -18,7 +18,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Install Rust
-        uses: dtolnay/rust-action@v1
+        uses: actions-rust-lang/setup-rust-action@v1
         with:
           rust-version: ${{ env.RUST_VERSION }}
       - name: Build
