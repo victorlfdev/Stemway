@@ -90,7 +90,8 @@ jobs:
         run: |
           echo "Current directory: $PWD"
           dir src-tauri\Cargo.toml
-          npx --yes @tauri-apps/cli@^2 build --target x86_64-pc-windows-msvc
+          call npm install -g @tauri-apps/cli
+          call tauri build --target x86_64-pc-windows-msvc
         shell: cmd
 
       - name: Upload Windows bundle
