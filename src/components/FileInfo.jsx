@@ -13,7 +13,7 @@ function formatModelName(model) {
   }
 }
 
-function FileInfo({ fileName, duration, sampleRate, channels, model, onNewFile }) {
+function FileInfo({ fileName, duration, sampleRate, channels, model, backend, onNewFile }) {
   const infoLines = []
   if (duration > 0) infoLines.push(formatDuration(duration))
   infoLines.push(`${sampleRate} Hz`)
@@ -21,6 +21,10 @@ function FileInfo({ fileName, duration, sampleRate, channels, model, onNewFile }
   else if (channels === 1) infoLines.push('Mono')
   else infoLines.push(`${channels}ch`)
   infoLines.push(formatModelName(model))
+
+  if (backend) {
+    infoLines.push(backend)
+  }
 
   return (
     <div className="bg-[#1a1a1a] rounded-xl border border-[#333] p-6 mb-6">

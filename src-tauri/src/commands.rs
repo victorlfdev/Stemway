@@ -11,6 +11,7 @@ pub struct ProcessResult {
     pub channels: u16,
     pub file_size_bytes: u64,
     pub model: String,
+    pub backend: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -161,6 +162,7 @@ pub async fn process_file(
                 channels,
                 file_size_bytes,
                 model: "bs-roformer".to_string(),
+                backend: None,
             })
         }
         "bs-roformer-cpp" => {
@@ -180,7 +182,10 @@ pub async fn process_file(
                 });
             }
 
-            let output_path = crate::bs_roformer_cpp_cli::run_bs_roformer_cpp_with_progress(
+            let backend = crate::bs_roformer_cpp_cli::detect_gpu_backend();
+            let backend_name = crate::bs_roformer_cpp_cli::get_backend_name(&backend);
+
+            let stem_pairs = crate::bs_roformer_cpp_cli::run_bs_roformer_cpp_with_progress(
                 input_path,
                 &cpp_output_dir,
                 move |prog: crate::bs_roformer_cpp_cli::BsRoformerCppProgress| {
@@ -188,8 +193,6 @@ pub async fn process_file(
                 },
             )
             .await?;
-
-            let stem_pairs = vec![("vocals".to_string(), output_path.to_str().unwrap().to_string())];
 
             let paths: Vec<String> = stem_pairs.iter().map(|(_, p)| p.clone()).collect();
 
@@ -208,6 +211,7 @@ pub async fn process_file(
                 channels,
                 file_size_bytes,
                 model: "bs-roformer-cpp".to_string(),
+                backend: Some(backend_name.to_string()),
             })
         }
         _ => {
@@ -257,6 +261,7 @@ pub async fn process_file(
                 channels,
                 file_size_bytes,
                 model: "demucs".to_string(),
+                backend: None,
             })
         }
     }

@@ -1,6 +1,15 @@
 import { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 
+const STEM_ICONS = {
+  vocals: '🎤',
+  drums: '🥁',
+  bass: '🎸',
+  guitar: '🎸',
+  piano: '🎹',
+  other: '🎵',
+}
+
 function formatFileSize(bytes) {
   if (bytes === 0) return ''
   const k = 1024
@@ -35,7 +44,8 @@ function StemResults({ stemPaths, onOpenFolder, onNewFile }) {
 
   const stemNames = stemPaths.map(path => {
     const name = path.split('/').pop().replace('.wav', '')
-    return { name, path }
+    const icon = STEM_ICONS[name] || '🎵'
+    return { name, path, icon }
   })
 
   const folder = stemPaths[0]?.split('/').slice(0, -1).join('/') || ''
@@ -45,13 +55,13 @@ function StemResults({ stemPaths, onOpenFolder, onNewFile }) {
       <div className="mb-6">
         <div className="text-xs text-gray-500 mb-2">Results</div>
         <div className="space-y-1">
-          {stemNames.map(({ name, path }) => (
+          {stemNames.map(({ name, path, icon }) => (
             <div
               key={path}
               className="flex items-center justify-between bg-[#1a1a1a] border border-[#333] px-4 py-3 rounded-lg"
             >
               <div className="flex items-center gap-3">
-                <span className="text-sm">🎵</span>
+                <span className="text-sm">{icon}</span>
                 <span className="text-sm capitalize">{name}</span>
               </div>
               <span className="text-xs text-gray-500">

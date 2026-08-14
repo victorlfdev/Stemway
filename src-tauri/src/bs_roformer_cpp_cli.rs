@@ -20,19 +20,20 @@ pub struct BsRoformerCppProgress {
     pub stage: String,
     pub percent: f64,
     pub message: String,
+    pub stem_index: Option<u32>,
 }
 
 const BSROFORMER_BINARY_NAME: &str = "bs_roformer-cli";
-const BSROFORMER_MODEL_URL: &str = "https://huggingface.co/chenmozhijin/BSRoformer-GGUF/resolve/main/anvuew/BS-RoFormer/BSRoformer-anvuew-Q8_0.gguf";
-const BSROFORMER_BINARY_URL_LINUX_VULKAN: &str = "https://github.com/chenmozhijin/BSRoformer.cpp/releases/download/v0.1.0/BSRoformer-linux-vulkan.tar.xz";
+const BSROFORMER_MODEL_URL: &str = "https://huggingface.co/victorlfdev/bs-roformer-multi-q8/resolve/main/bs-roformer-multi-q8.gguf";
+const BSROFORMER_BINARY_URL_LINUX_VULKAN: &str = "https://github.com/victorlfdev/Fork-BSRoformer.cpp/releases/download/v0.1.0/BSRoformer-linux-vulkan.tar.xz";
 const BSROFORMER_BINARY_URL_LINUX_CPU: &str = "https://github.com/chenmozhijin/BSRoformer.cpp/releases/download/v0.1.0/BSRoformer-linux-x64-cpu.tar.xz";
 const BSROFORMER_BINARY_URL_LINUX_CUDA11: &str = "https://github.com/chenmozhijin/BSRoformer.cpp/releases/download/v0.1.0/BSRoformer-linux-cuda-11.8.0.tar.xz";
 const BSROFORMER_BINARY_URL_LINUX_CUDA12: &str = "https://github.com/chenmozhijin/BSRoformer.cpp/releases/download/v0.1.0/BSRoformer-linux-cuda-12.9.1.tar.xz";
-const BSROFORMER_BINARY_URL_WINDOWS_VULKAN: &str = "https://github.com/chenmozhijin/BSRoformer.cpp/releases/download/v0.1.0/BSRoformer-windows-cuda-12.9.1.zip";
+const BSROFORMER_BINARY_URL_WINDOWS_VULKAN: &str = "https://github.com/victorlfdev/Fork-BSRoformer.cpp/releases/download/v0.1.0/BSRoformer-windows-vulkan.zip";
 const BSROFORMER_BINARY_URL_WINDOWS_CPU: &str = "https://github.com/chenmozhijin/BSRoformer.cpp/releases/download/v0.1.0/BSRoformer-windows-cpu.zip";
-const BSROFORMER_MODEL_NAME: &str = "BSRoformer-anvuew-Q8_0.gguf";
+const BSROFORMER_MODEL_NAME: &str = "bs-roformer-multi-q8.gguf";
 
-fn detect_gpu_backend() -> BsRoformerBackend {
+pub fn detect_gpu_backend() -> BsRoformerBackend {
     if cfg!(target_os = "macos") {
         #[cfg(target_arch = "aarch64")]
         {
@@ -132,7 +133,7 @@ fn get_binary_url(backend: &BsRoformerBackend) -> &'static str {
     }
 }
 
-fn get_backend_name(backend: &BsRoformerBackend) -> &'static str {
+pub fn get_backend_name(backend: &BsRoformerBackend) -> &'static str {
     match backend {
         BsRoformerBackend::Cpu => "CPU",
         BsRoformerBackend::Vulkan => "Vulkan (GPU)",
@@ -256,14 +257,14 @@ async fn extract_tar_xz_all(
     }
 
     let mut libs = vec![
-        ("libggml.so.0", "libggml.so.0.15.1"),
-        ("libggml-base.so.0", "libggml-base.so.0.15.1"),
-        ("libggml-cpu.so.0", "libggml-cpu.so.0.15.1"),
+        ("libggml.so.0", "libggml.so.0.19.0"),
+        ("libggml-base.so.0", "libggml-base.so.0.19.0"),
+        ("libggml-cpu.so.0", "libggml-cpu.so.0.19.0"),
     ];
 
     match backend {
         BsRoformerBackend::Vulkan => {
-            libs.push(("libggml-vulkan.so.0", "libggml-vulkan.so.0.15.1"));
+            libs.push(("libggml-vulkan.so.0", "libggml-vulkan.so.0.19.0"));
             eprintln!("Extracted Vulkan backend ({} libs)", libs.len());
         }
         _ => {
@@ -391,18 +392,15 @@ pub async fn run_bs_roformer_cpp_with_progress<F>(
     input_path: &Path,
     output_dir: &Path,
     progress_callback: F,
-) -> Result<PathBuf, String>
+) -> Result<Vec<(String, String)>, String>
 where
     F: Fn(BsRoformerCppProgress) + Send + Sync + 'static,
 {
     let binary = get_binary_path().await?;
     let model = get_model_path().await?;
 
-    let output_file = output_dir.join("vocals.wav");
-
-    if output_file.exists() {
-        fs::remove_file(&output_file).ok();
-    }
+    let output_dir_clone = output_dir.to_path_buf();
+    let output_file = output_dir_clone.join("output.wav");
 
     let input_for_binary = check_and_resample_to_44100(input_path)?;
     let is_temp_file = input_for_binary != input_path;
@@ -413,7 +411,7 @@ where
 
     eprintln!("BSRoformer binary: {}", binary.display());
     eprintln!("BSRoformer model: {}", model.display());
-    eprintln!("BSRoformer output file: {}", output_file.display());
+    eprintln!("BSRoformer output base: {}", output_file.display());
     eprintln!("BSRoformer input file (after resample check): {}", input_for_binary.display());
     eprintln!("Binary dir: {}", binary_dir.display());
 
@@ -421,12 +419,15 @@ where
     let binary_clone = binary.clone();
 
     let mut cmd = TokioCommand::new(&binary_clone);
-    cmd.args([
-        model.to_str().ok_or("Invalid model path")?,
-        input_for_binary.to_str().ok_or("Invalid input path")?,
-        output_file.to_str().ok_or("Invalid output path")?,
-        "--overlap", "2",
-    ])
+    let cmd_args: Vec<String> = vec![
+        model.to_str().ok_or("Invalid model path")?.to_string(),
+        input_for_binary.to_str().ok_or("Invalid input path")?.to_string(),
+        output_file.to_str().ok_or("Invalid output path")?.to_string(),
+        "--overlap".to_string(),
+        "2".to_string(),
+    ];
+
+    cmd.args(&cmd_args)
     .current_dir(&binary_dir_clone)
     .stdout(Stdio::piped())
     .stderr(Stdio::piped())
@@ -493,13 +494,21 @@ where
                             stage: "Processing".to_string(),
                             percent: 50.0,
                             message: "Running inference...".to_string(),
+                            stem_index: None,
                         });
                     }
                     if stripped.contains("Saving") || stripped.contains("saving") {
+                        let stem_idx = extract_stem_index_from_line(&stripped);
+                        let stem_msg = if let Some(idx) = stem_idx {
+                            format!("Saving stem {}", idx)
+                        } else {
+                            "Saving output...".to_string()
+                        };
                         let _ = (stage_clone)(BsRoformerCppProgress {
                             stage: "Saving".to_string(),
                             percent: 90.0,
-                            message: "Saving vocals...".to_string(),
+                            message: stem_msg,
+                            stem_index: stem_idx,
                         });
                     }
                     if stripped.contains("Error") || stripped.contains("error") {
@@ -507,6 +516,7 @@ where
                             stage: "Error".to_string(),
                             percent: 0.0,
                             message: format!("BSRoformer error: {}", stripped.trim()),
+                            stem_index: None,
                         });
                     }
                 }
@@ -558,6 +568,11 @@ where
             .await
             .map_err(|e| format!("Failed to wait for BSRoformer: {}", e));
 
+        let total_time = overall_clone.load(std::sync::atomic::Ordering::SeqCst);
+        if total_time == 1 {
+            return Ok::<Vec<(String, String)>, String>(Vec::new());
+        }
+
         match result {
             Ok(output) => {
                 let status = output.status;
@@ -568,16 +583,26 @@ where
                 eprintln!("BSRoformer full stderr: {}", stderr_str);
 
                 if status.success() {
-                    (cb_err)(BsRoformerCppProgress {
-                        stage: "Complete".to_string(),
-                        percent: 100.0,
-                        message: "Stems separated!".to_string(),
-                    });
+                    let stem_pairs = parse_multi_stem_output(&output_dir_clone, &output_file);
+                    if let Ok(ref pairs) = stem_pairs {
+                        let total = pairs.len();
+                        if total > 0 {
+                            (cb_err)(BsRoformerCppProgress {
+                                stage: "Complete".to_string(),
+                                percent: 100.0,
+                                message: format!("Separated {} stems!", total),
+                                stem_index: Some((total - 1) as u32),
+                            });
+                        }
+                    }
+                    overall_clone.store(1, std::sync::atomic::Ordering::SeqCst);
+                    return stem_pairs;
                 } else {
                     (cb_err)(BsRoformerCppProgress {
                         stage: "Error".to_string(),
                         percent: 0.0,
                         message: format!("BSRoformer exited with status: {}. stderr: {}", status, stderr_str),
+                        stem_index: None,
                     });
                 }
             }
@@ -586,26 +611,79 @@ where
                     stage: "Error".to_string(),
                     percent: 0.0,
                     message: e.to_string(),
+                    stem_index: None,
                 });
             }
         }
         overall_clone.store(1, std::sync::atomic::Ordering::SeqCst);
+        Err("BSRoformer process did not complete successfully".to_string())
     });
 
-    let _ = tokio::join!(stderr_task, stdout_task, wait_task);
+    let wait_result = tokio::join!(stderr_task, stdout_task, wait_task);
 
     if is_temp_file {
         let _ = fs::remove_file(&input_for_binary);
     }
 
-    let total_time = overall_progress.load(std::sync::atomic::Ordering::SeqCst);
-    if total_time == 0 {
-        return Err("BSRoformer process did not complete".to_string());
+    match wait_result.2 {
+        Ok(stems) => stems,
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn extract_stem_index_from_line(line: &str) -> Option<u32> {
+    let lower = line.to_lowercase();
+    if let Some(idx) = lower.find("stem ") {
+        let after = &lower[idx + 5..];
+        let after = after.trim_start();
+        if let Some(num) = after.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse::<u32>().ok() {
+            return Some(num);
+        }
+    }
+    None
+}
+
+fn parse_multi_stem_output(
+    output_dir: &Path,
+    output_base: &Path,
+) -> Result<Vec<(String, String)>, String> {
+    let base_name = output_base
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid base output name")?;
+
+    let mut stems: Vec<(u32, String, String)> = Vec::new();
+
+    for entry in fs::read_dir(output_dir)
+        .map_err(|e| format!("Failed to read output directory: {}", e))?
+    {
+        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+        let path = entry.path();
+
+        if path.extension().and_then(|e| e.to_str()) == Some("wav") {
+            let file_stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .ok_or("Invalid stem filename")?
+                .to_string();
+
+            let prefix = format!("{}_stem_", base_name);
+            if file_stem.starts_with(&prefix) {
+                let suffix = &file_stem[prefix.len()..];
+                if let Ok(idx) = suffix.parse::<u32>() {
+                    let name = format!("stem_{}", idx);
+                    let path = path.to_str().ok_or("Invalid path")?.to_string();
+                    stems.push((idx, name, path));
+                }
+            }
+        }
     }
 
-    if output_file.exists() {
-        Ok(output_file)
-    } else {
-        Err("BSRoformer failed to produce output".to_string())
-    }
+    stems.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let result: Vec<(String, String)> = stems.into_iter()
+        .map(|(_, name, path)| (name, path))
+        .collect();
+
+    Ok(result)
 }

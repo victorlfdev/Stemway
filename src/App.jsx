@@ -109,7 +109,7 @@ function App() {
         <div className="flex items-center gap-2">
           <span className="text-lg">🎵</span>
           <h1 className="text-sm font-semibold">Stem Separator</h1>
-          <span className="text-[10px] text-gray-600">v0.2.1</span>
+          <span className="text-[10px] text-gray-600">v0.3.0</span>
         </div>
       </header>
 
@@ -139,6 +139,7 @@ function App() {
                 sampleRate={metadata.sample_rate}
                 channels={metadata.channels}
                 model={metadata.model}
+                backend={metadata.backend}
                 onNewFile={clearFile}
               />
               <StemResults
@@ -175,7 +176,7 @@ function App() {
       )}
 
       <footer className="px-6 py-2 border-t border-[#1a1a1a] text-center text-[9px] text-gray-600">
-        Stem Separator v0.2.1 — HTDemucs, BS-RoFormer & BS-RoFormer.cpp
+        Stem Separator v0.3.0 — HTDemucs, BS-RoFormer, BS-RoFormer.cpp (Vulkan/CPU)
       </footer>
     </div>
   )

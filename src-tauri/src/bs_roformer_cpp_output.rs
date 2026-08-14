@@ -1,7 +1,16 @@
 use std::fs;
 use std::path::Path;
 
-pub fn parse_output(output_dir: &str) -> Result<Vec<(String, String)>, String> {
+const STEM_NAMES: [&str; 6] = [
+    "vocals",
+    "drums",
+    "bass",
+    "guitar",
+    "piano",
+    "other",
+];
+
+pub fn parse_multi_stem_output(output_dir: &str) -> Result<Vec<(String, String)>, String> {
     let stems_dir = Path::new(output_dir);
 
     if !stems_dir.exists() {
@@ -9,6 +18,7 @@ pub fn parse_output(output_dir: &str) -> Result<Vec<(String, String)>, String> {
     }
 
     let mut stems: Vec<(String, String)> = Vec::new();
+    let mut stem_index_map: std::collections::HashMap<u32, String> = std::collections::HashMap::new();
 
     for entry in fs::read_dir(stems_dir)
         .map_err(|e| format!("Failed to read output directory: {}", e))?
@@ -23,15 +33,49 @@ pub fn parse_output(output_dir: &str) -> Result<Vec<(String, String)>, String> {
                 .ok_or("Invalid stem filename")?
                 .to_string();
 
-            let file_path = path
-                .to_str()
-                .ok_or("Invalid file path")?
-                .to_string();
-
-            stems.push((stem_name, file_path));
+            if let Some(stem_idx) = extract_stem_index(&stem_name) {
+                let friendly_name = match stem_idx {
+                    0 => "vocals".to_string(),
+                    1 => "drums".to_string(),
+                    2 => "bass".to_string(),
+                    3 => "guitar".to_string(),
+                    4 => "piano".to_string(),
+                    5 => "other".to_string(),
+                    _ => format!("stem_{}", stem_idx),
+                };
+                let file_path = path
+                    .to_str()
+                    .ok_or("Invalid file path")?
+                    .to_string();
+                stem_index_map.insert(stem_idx, friendly_name.clone());
+                stems.push((friendly_name, file_path));
+            }
         }
     }
 
-    stems.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    stems.sort_by(|a, b| {
+        let a_idx = get_stem_order(&a.0);
+        let b_idx = get_stem_order(&b.0);
+        a_idx.cmp(&b_idx)
+    });
+
     Ok(stems)
+}
+
+fn extract_stem_index(name: &str) -> Option<u32> {
+    let parts: Vec<&str> = name.rsplit('_').collect();
+    if parts.len() >= 2 {
+        parts[0].parse::<u32>().ok()
+    } else {
+        None
+    }
+}
+
+fn get_stem_order(name: &str) -> u32 {
+    for (i, stem) in STEM_NAMES.iter().enumerate() {
+        if *stem == name {
+            return i as u32;
+        }
+    }
+    99
 }
