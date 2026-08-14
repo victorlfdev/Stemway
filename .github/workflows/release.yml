@@ -87,7 +87,11 @@ jobs:
         run: npm ci
 
       - name: Build Windows
-        run: npm run tauri build -- --target x86_64-pc-windows-msvc
+        run: |
+          set -e
+          echo "Starting Windows build..."
+          npm run tauri build -- --target x86_64-pc-windows-msvc 2>&1 | tee build.log
+          echo "Build exit code: $?"
 
       - name: Upload Windows bundle
         if: always()
