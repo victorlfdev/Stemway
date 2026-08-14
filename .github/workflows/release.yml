@@ -80,18 +80,16 @@ jobs:
           path: ~/.cargo
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install Tauri CLI
-        run: npm install -g @tauri-apps/cli
-
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build Windows
+      - name: Setup cross compilation tools
         run: |
-          set -e
-          echo "Starting Windows build..."
-          npm run tauri build -- --target x86_64-pc-windows-msvc 2>&1 | tee build.log
-          echo "Build exit code: $?"
+          rustup target add x86_64-pc-windows-msvc
+          cargo install tauri-cli --version "^2"
+
+      - name: Build Windows
+        run: tauri build --target x86_64-pc-windows-msvc
 
       - name: Upload Windows bundle
         if: always()
