@@ -1,4 +1,4 @@
-# Stem Separator — Design System
+# Stemway — Design System
 
 <!-- impeccable:design-schema 1 -->
 

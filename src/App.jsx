@@ -151,7 +151,7 @@ function App() {
             </svg>
           </div>
           <div>
-            <h1 className="text-sm font-semibold tracking-tight">Stem Separator</h1>
+            <h1 className="text-sm font-semibold tracking-tight">Stemway</h1>
             <span className="text-[10px] text-[#888]">v0.3.0</span>
           </div>
         </div>
@@ -269,7 +269,7 @@ function App() {
 
       <footer className="px-6 py-3 border-t border-[#1a1a1a] flex items-center justify-between">
         <span className="text-[9px] text-[#aaa] tracking-wide">
-          Stem Separator — Local AI audio separation
+          Stemway — Local AI audio separation
         </span>
         <span className="text-[9px] text-[#aaa] tracking-wide">
           {selectedModelInfo?.label || MODELS[0].label}

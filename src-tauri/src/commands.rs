@@ -93,7 +93,7 @@ pub async fn process_file(
     model: String,
     app: tauri::AppHandle,
 ) -> Result<ProcessResult, String> {
-    let temp_dir = directories::ProjectDirs::from("", "", "stem-separator")
+    let temp_dir = directories::ProjectDirs::from("", "", "stemway")
         .map(|d| d.cache_dir().to_path_buf())
         .unwrap_or_else(|| std::env::temp_dir());
     std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;

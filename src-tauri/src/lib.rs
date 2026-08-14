@@ -11,7 +11,7 @@ pub use commands::ProcessResult;
 use tauri_plugin_fs::FsExt as _;
 
 pub fn run() {
-    println!("Stem Separator running");
+    println!("Stemway running");
 }
 
 pub fn tauri_app() {
@@ -21,7 +21,7 @@ pub fn tauri_app() {
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             let scope = app.fs_scope();
-            let cache_dir = directories::ProjectDirs::from("", "", "stem-separator")
+            let cache_dir = directories::ProjectDirs::from("", "", "stemway")
                 .map(|d| d.cache_dir().to_path_buf())
                 .expect("failed to get cache dir");
             scope.allow_directory(&cache_dir, true)?;
@@ -36,7 +36,7 @@ pub fn tauri_app() {
             commands::probe_file,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running stem separator tauri app");
+        .expect("error while running stemway tauri app");
 }
 
 #[cfg(test)]

@@ -12,11 +12,11 @@ Musicians, producers, DJs, and audio engineers who need to isolate individual in
 
 ## Product Purpose
 
-Stem Separator is a desktop application that uses AI models to separate a full music audio track (WAV or MP3) into four individual stems: drums, bass, vocals, and other. The product lets users choose between multiple separation models, process their files locally, preview the resulting stems, and export them as WAV files. Success means a user obtains clean, usable stems from their music in minutes, not hours.
+Stemway is a desktop application that uses AI models to separate a full music audio track (WAV or MP3) into four individual stems: drums, bass, vocals, and other. The product lets users choose between multiple separation models, process their files locally, preview the resulting stems, and export them as WAV files. Success means a user obtains clean, usable stems from their music in minutes, not hours.
 
 ## Positioning
 
-Stem Separator offers three separation models (HTDemucs, BS-RoFormer, BS-RoFormer.cpp) with GPU acceleration options, all running locally on the user's machine. No data leaves the computer, no subscriptions are required, and the source code is open. This is a local-first, open-source alternative to web-only stem separation services.
+Stemway offers three separation models (HTDemucs, BS-RoFormer, BS-RoFormer.cpp) with GPU acceleration options, all running locally on the user's machine. No data leaves the computer, no subscriptions are required, and the source code is open. This is a local-first, open-source alternative to web-only stem separation services.
 
 ## Operating Context
 
@@ -28,7 +28,7 @@ Users run the application as a standalone desktop app on Linux, Windows, or macO
 - **Output format:** 16-bit PCM WAV, stereo, 4 stems (drums, bass, vocals, other)
 - **Models:** HTDemucs (Python-based CLI), BS-RoFormer (Python-based CLI), BS-RoFormer.cpp (Vulkan/CPU via native binary)
 - **GPU acceleration:** BS-RoFormer.cpp supports Vulkan (NVIDIA/AMD) and CPU fallback
-- **File management:** Processed stems stored in OS cache directory (~/.local/share/stem-separator/ on Linux, %APPDATA% on Windows)
+- **File management:** Processed stems stored in OS cache directory (~/.local/share/stemway/ on Linux, %APPDATA% on Windows)
 - **Dependency management:** External models installed automatically on first use
 - **Technical constraints:** Large model downloads (~316 MB for HTDemucs); processing time depends on file length and model complexity; CPU fallback for BS-RoFormer.cpp is significantly slower than GPU
 

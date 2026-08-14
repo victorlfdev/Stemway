@@ -1,4 +1,4 @@
-# Stem Separator — Desktop App
+# Stemway — Desktop App
 
 App desktop standalone para separação de stems de áudio usando IA (HTDemucs ONNX).
 
@@ -17,7 +17,7 @@ App desktop standalone para separação de stems de áudio usando IA (HTDemucs O
 ## 🏗️ Estrutura do Projeto
 
 ```
-stem-separator/
+stemway/
 ├── src-tauri/                          # Rust backend
 │   ├── Cargo.toml
 │   ├── build.rs
@@ -72,7 +72,7 @@ stem-separator/
 
 ```
 ┌───────────────────────────────────────────────────┐
-│  🎵 Stem Separator                                │
+│  🎵 Stemway                                │
 │                                                   │
 │  ┌─────────────────────────────────────────────┐  │
 │  │  [Drag & Drop Audio]                        │  │
@@ -140,8 +140,8 @@ Formato: ONNX (single-file, 4 stems)
 
 ### Cache Local
 ```
-Linux: ~/.local/share/stem-separator/models/htdemucs.onnx
-Windows: %APPDATA%\stem-separator\models\htdemucs.onnx
+Linux: ~/.local/share/stemway/models/htdemucs.onnx
+Windows: %APPDATA%\stemway\models\htdemucs.onnx
 ```
 
 ### Especificações
@@ -200,7 +200,7 @@ tokio = { version = "1", features = ["full"] }
 ---
 
 ### Fase 1: Tauri + React Setup (3-4 dias)
-- [x] `cargo tauri init stem-separator`
+- [x] `cargo tauri init stemway`
 - [x] Configurar React + Vite + TailwindCSS
 - [x] Implementar Dropzone + Layout
 - [x] File I/O: salvar arquivo em temp dir
@@ -407,7 +407,7 @@ cargo install tauri-cli
 # (já instalado via fnvm)
 
 # Iniciar app
-cd stem-separator
+cd stemway
 npm install
 npm run tauri dev
 ```

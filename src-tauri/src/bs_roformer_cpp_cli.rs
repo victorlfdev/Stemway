@@ -145,7 +145,7 @@ pub fn get_backend_name(backend: &BsRoformerBackend) -> &'static str {
 }
 
 pub fn get_cache_dirs() -> Result<(PathBuf, PathBuf, PathBuf), String> {
-    let dirs = directories::ProjectDirs::from("", "", "stem-separator")
+    let dirs = directories::ProjectDirs::from("", "", "stemway")
         .map(|d| d.cache_dir().to_path_buf())
         .unwrap_or_else(|| std::env::temp_dir());
 

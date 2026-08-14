@@ -1,4 +1,4 @@
-# Agent Instructions — Stem Separator Project
+# Agent Instructions — Stemway Project
 
 ## Workflow Rules
 

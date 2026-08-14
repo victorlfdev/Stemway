@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Stem Separator",
+  "productName": "Stemway",
   "version": "0.3.0",
-  "identifier": "com.stem-separator.app",
+  "identifier": "com.stemway.app",
   "build": {
     "frontendDist": "../dist",
     "beforeDevCommand": "npm run dev",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Stem Separator",
+        "title": "Stemway",
         "width": 1024,
         "height": 768,
         "resizable": true,
