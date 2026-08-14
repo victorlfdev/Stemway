@@ -76,7 +76,9 @@ stemway/
 
 ## Acknowledgements
 
-- [HTDemucs](https://github.com/facebookresearch/ambigene) - Facebook Research
-- [BS-RoFormer](https://github.com/trichetmatthewp/BS-RoFormer) - Music and Audio Processing Lab
-- [BS-RoFormer.cpp](https://github.com/NatanGazzah/BS-RoFormer.cpp) - GPU-accelerated C++ implementation
-- [Tauri](https://tauri.app/) - Cross-platform desktop framework
+This project relies on the following third-party tools and models:
+
+- **[HTDemucs](https://github.com/facebookresearch/demucs)** — *Demucs: Neural Music Separation* by François Rigollet, et al. (Facebook Research). Licensed under MIT.
+- **[BS-RoFormer](https://github.com/lucidrains/BS-RoFormer)** — *BS-RoFormer: Better Symmetric Spectrogram Decomposition* by Phil Wang (lucidrains). Licensed under MIT.
+- **[BS-RoFormer.cpp](https://github.com/chenmozhijin/BSRoformer.cpp)** — *BS-RoFormer C++ inference port* by chenmozhijin. Licensed under MIT.
+- **[Tauri](https://tauri.app/)** — Cross-platform desktop framework. Licensed under MIT / Apache-2.0.
