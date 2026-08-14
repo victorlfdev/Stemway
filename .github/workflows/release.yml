@@ -86,16 +86,12 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Verify Tauri CLI
-        run: npm install -g @tauri-apps/cli && tauri --version
-
       - name: Build Windows
         run: |
-          echo "Current directory: $(pwd)"
-          ls -la
-          echo "Tauri CLI path: $(which tauri 2>/dev/null || echo 'not found')"
-          echo "Node version: $(node -v)"
-          npm run tauri build -- --target x86_64-pc-windows-msvc
+          echo "Current directory: $PWD"
+          dir src-tauri\Cargo.toml
+          npx --yes @tauri-apps/cli@^2 build --target x86_64-pc-windows-msvc
+        shell: cmd
 
       - name: Upload Windows bundle
         if: always()
