@@ -27,17 +27,24 @@ function FileInfo({ fileName, duration, sampleRate, channels, model, backend, on
   }
 
   return (
-    <div className="bg-[#1a1a1a] rounded-xl border border-[#333] p-6 mb-6">
-      <div className="flex items-center justify-between mb-1">
-        <div className="text-sm font-medium truncate mr-4">{fileName}</div>
+    <div className="bg-[#0f0f0f] rounded-xl border border-[#1a1a1a] p-5 mb-6">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-[#1a1a1a] flex items-center justify-center">
+            <svg className="w-4 h-4 text-[#666]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.126-0.895 2-2 2s-2-0.874-2-2 0.895-2 2-2 2 0.874 2 2zm12-13c0 1.126-0.895 2-2 2s-2-0.874-2-2 0.895-2 2-2 2 0.874 2 2z" />
+            </svg>
+          </div>
+          <div className="text-sm font-medium truncate">{fileName}</div>
+        </div>
         <button
           onClick={onNewFile}
-          className="text-xs text-gray-500 hover:text-gray-300 transition-colors shrink-0"
+          className="text-xs text-[#555] hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-[#1a1a1a]"
         >
           Change file
         </button>
       </div>
-      <div className="text-xs text-gray-500">{infoLines.join(' • ')}</div>
+      <div className="text-xs text-[#555]">{infoLines.join(' · ')}</div>
     </div>
   )
 }
