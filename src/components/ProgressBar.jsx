@@ -2,9 +2,9 @@ function ProgressBar({ stage, percent, message, model }) {
   const displayPercent = Math.min(Math.round(percent), 100)
 
   const modelLabels = {
-    'demucs': 'HTDemucs',
-    'bs-roformer': 'BS-RoFormer',
-    'bs-roformer-cpp': 'BS-RoFormer.cpp'
+    'demucs': '4-Track Standard',
+    'bs-roformer': '4-Track Essential',
+    'bs-roformer-cpp': '6-Track Premium'
   }
 
   return (

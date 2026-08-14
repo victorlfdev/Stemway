@@ -7,9 +7,9 @@ function formatDuration(seconds) {
 
 function formatModelName(model) {
   switch (model) {
-    case 'bs-roformer': return 'BS-RoFormer'
-    case 'bs-roformer-cpp': return 'BS-RoFormer.cpp'
-    default: return 'HTDemucs'
+    case 'bs-roformer': return '4-Track Essential'
+    case 'bs-roformer-cpp': return '6-Track Premium'
+    default: return '4-Track Standard'
   }
 }
 

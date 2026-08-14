@@ -15,13 +15,13 @@ const EVENT_MAP = {
 }
 
 const MODELS = [
-  { value: 'demucs', label: 'HTDemucs', description: 'Best quality. Separates drums, bass, vocals, other.', recommended: true },
-  { value: 'bs-roformer', label: 'BS-RoFormer', description: 'Good quality. Slower processing.', recommended: false },
-  { value: 'bs-roformer-cpp', label: 'BS-RoFormer.cpp', description: 'Fastest. GPU or CPU backend available.', recommended: false }
+  { value: 'bs-roformer-cpp', label: '6-Track Premium', description: 'Best quality (BS-RoFormer.cpp). 6 instruments. GPU accelerated (~30sec) or CPU (~25min)', recommended: true },
+  { value: 'demucs', label: '4-Track Standard', description: 'Good quality (HTDemucs). 4 instruments. Fast CPU processing', recommended: false },
+  { value: 'bs-roformer', label: '4-Track Essential', description: 'Alternative (BS-RoFormer). 4 instruments. Slower, CPU only', recommended: false }
 ]
 
 function App() {
-  const [selectedModel, setSelectedModel] = useState('demucs')
+  const [selectedModel, setSelectedModel] = useState('bs-roformer-cpp')
   const [selectedFile, setSelectedFile] = useState(null)
   const [metadata, setMetadata] = useState(null)
   const [stemPaths, setStemPaths] = useState([])
@@ -272,7 +272,7 @@ function App() {
           Stem Separator — Local AI audio separation
         </span>
         <span className="text-[9px] text-[#444] tracking-wide">
-          {selectedModelInfo?.label || MODELS[0].label} · HTDemucs · BS-RoFormer · BS-RoFormer.cpp
+          {selectedModelInfo?.label || MODELS[0].label} · 4-Track Standard · 4-Track Essential · 6-Track Premium
         </span>
       </footer>
     </div>
