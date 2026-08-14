@@ -86,19 +86,8 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Verify build environment
-        run: |
-          echo "Node version: $(node -v)"
-          echo "NPM version: $(npm -v)"
-          dir src-tauri\Cargo.toml
-          dir node_modules\.bin\tauri.cmd
-          npx tauri --version
-        shell: cmd
-
       - name: Build Windows
-        run: |
-          npm install -g @tauri-apps/cli
-          tauri build --target x86_64-pc-windows-msvc
+        run: npm run tauri build -- --target x86_64-pc-windows-msvc
         shell: cmd
 
       - name: Upload Windows bundle
