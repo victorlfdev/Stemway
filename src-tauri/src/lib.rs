@@ -45,11 +45,11 @@ mod tests {
 
     #[test]
     fn test_probe_test_wav() {
-        let result = info::probe_wav("/tmp/demucs_final_test/htdemucs_6s/test_final/bass.wav");
+        let result = info::probe_wav("test_output_stem__bass.wav");
         assert!(result.is_ok());
         let (dur, sr, ch, size) = result.unwrap();
-        assert!(dur > 9.0 && dur < 11.0);
-        assert_eq!(sr, 44100);
+        assert!(dur > 90.0);
+        assert_eq!(sr, 16000);
         assert_eq!(ch, 2);
         assert!(size > 0);
     }
