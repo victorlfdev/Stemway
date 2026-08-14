@@ -88,6 +88,8 @@ jobs:
 
       - name: Build Windows
         run: |
+          echo "Node version: $(node -v)"
+          npm install
           npm install -g @tauri-apps/cli
           tauri --version
           tauri build --target x86_64-pc-windows-msvc --verbose
