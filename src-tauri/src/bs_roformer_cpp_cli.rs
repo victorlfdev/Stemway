@@ -594,6 +594,16 @@ where
                                 stem_index: Some((total - 1) as u32),
                             });
                         }
+                        let pairs_to_rename: Vec<(String, String)> = pairs.iter().map(|(name, path)| (name.clone(), path.clone())).collect();
+                        let mut new_pairs: Vec<(String, String)> = Vec::new();
+                        for (name, path) in pairs_to_rename {
+                            let new_path = output_dir_clone.join(format!("{}.wav", name));
+                            if Path::new(&path).exists() && !Path::new(&new_path).exists() {
+                                let _ = fs::rename(path, &new_path);
+                            }
+                            new_pairs.push((name.clone(), new_path.to_str().ok_or("Invalid path")?.to_string()));
+                        }
+                        return Ok(new_pairs);
                     }
                     overall_clone.store(1, std::sync::atomic::Ordering::SeqCst);
                     return stem_pairs;
@@ -643,6 +653,15 @@ fn extract_stem_index_from_line(line: &str) -> Option<u32> {
     None
 }
 
+const STEM_NAMES: [&str; 6] = [
+    "bass",
+    "drums",
+    "other",
+    "vocals",
+    "guitar",
+    "piano",
+];
+
 fn parse_multi_stem_output(
     output_dir: &Path,
     output_base: &Path,
@@ -671,7 +690,11 @@ fn parse_multi_stem_output(
             if file_stem.starts_with(&prefix) {
                 let suffix = &file_stem[prefix.len()..];
                 if let Ok(idx) = suffix.parse::<u32>() {
-                    let name = format!("stem_{}", idx);
+                    let name = if idx < STEM_NAMES.len() as u32 {
+                        STEM_NAMES[idx as usize].to_string()
+                    } else {
+                        format!("stem_{}", idx)
+                    };
                     let path = path.to_str().ok_or("Invalid path")?.to_string();
                     stems.push((idx, name, path));
                 }

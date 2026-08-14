@@ -2,12 +2,12 @@ use std::fs;
 use std::path::Path;
 
 const STEM_NAMES: [&str; 6] = [
-    "vocals",
-    "drums",
     "bass",
+    "drums",
+    "other",
+    "vocals",
     "guitar",
     "piano",
-    "other",
 ];
 
 pub fn parse_multi_stem_output(output_dir: &str) -> Result<Vec<(String, String)>, String> {
@@ -35,12 +35,12 @@ pub fn parse_multi_stem_output(output_dir: &str) -> Result<Vec<(String, String)>
 
             if let Some(stem_idx) = extract_stem_index(&stem_name) {
                 let friendly_name = match stem_idx {
-                    0 => "vocals".to_string(),
+                    0 => "bass".to_string(),
                     1 => "drums".to_string(),
-                    2 => "bass".to_string(),
-                    3 => "guitar".to_string(),
-                    4 => "piano".to_string(),
-                    5 => "other".to_string(),
+                    2 => "other".to_string(),
+                    3 => "vocals".to_string(),
+                    4 => "guitar".to_string(),
+                    5 => "piano".to_string(),
                     _ => format!("stem_{}", stem_idx),
                 };
                 let file_path = path
