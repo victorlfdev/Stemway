@@ -1,4 +1,4 @@
-name: Build
+name: Build Windows
 
 on:
   push:
@@ -12,13 +12,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: build-linux-${{ github.ref }}
+  group: build-windows-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: Build Linux
-    runs-on: ubuntu-22.04
+    name: Build Windows
+    runs-on: windows-latest
 
     steps:
       - name: Checkout repository
@@ -37,17 +37,6 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
-
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libssl-dev \
-            build-essential
 
       - name: Install frontend dependencies
         run: npm ci
