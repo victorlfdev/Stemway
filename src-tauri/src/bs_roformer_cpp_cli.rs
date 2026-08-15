@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::process::Stdio;
 use tokio::process::Command as TokioCommand;
@@ -183,7 +184,7 @@ pub async fn get_binary_path() -> Result<PathBuf, String> {
         return Err("Failed to extract BSRoformer binary".to_string());
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     {
         let _ = std::fs::set_permissions(
             &binary_path,
@@ -275,7 +276,17 @@ async fn extract_tar_xz_all(
     for (link_name, target_name) in &libs {
         let link_path = dest_dir.join(link_name);
         if !link_path.exists() {
-            let _ = std::os::unix::fs::symlink(target_name, &link_path);
+            #[cfg(unix)]
+            {
+                let _ = std::os::unix::fs::symlink(target_name, &link_path);
+            }
+            #[cfg(not(unix))]
+            {
+                // Esta função só roda em Linux/macOS em tempo de execução,
+                // mas ainda é compilada em todas as plataformas — sem symlink no Windows.
+                let target_path = dest_dir.join(target_name);
+                let _ = std::fs::copy(&target_path, &link_path);
+            }
         }
     }
 
@@ -464,7 +475,8 @@ where
 
     #[cfg(not(target_os = "linux"))]
     {
-        cmd.env("PATH", format!("{}:{}", binary_dir_clone.display(), std::env::var("PATH").unwrap_or_default()));
+        let path_sep = if cfg!(target_os = "windows") { ";" } else { ":" };
+        cmd.env("PATH", format!("{}{}{}", binary_dir_clone.display(), path_sep, std::env::var("PATH").unwrap_or_default()));
         if cfg!(target_os = "windows") {
             cmd.env("SYSTEMROOT", std::env::var("SYSTEMROOT").unwrap_or_default());
         }
