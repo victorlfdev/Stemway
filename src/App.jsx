@@ -7,6 +7,9 @@ import FileInfo from "./components/FileInfo";
 import LoadingScreen from "./components/LoadingScreen";
 import StemResults from "./components/StemResults";
 import ErrorBanner from "./components/ErrorBanner";
+import BlurText from "./components/ui/blur-text";
+import GlowButton from "./components/ui/glow-button";
+import LineWaves from "./components/ui/LineWaves";
 
 const EVENT_MAP = {
   demucs: "demucs_progress",
@@ -25,15 +28,15 @@ const MODELS = [
   },
   {
     value: "demucs",
-    label: "4-Track Standard",
-    description: "Good quality (HTDemucs). 4 instruments. Fast CPU processing",
+    label: "6-Track Standard",
+    description: "Good quality (HTDemucs). 6 instruments. Fast CPU processing",
     recommended: false,
     meta: "Fast CPU processing",
   },
   {
     value: "bs-roformer",
-    label: "4-Track Essential",
-    description: "Alternative (BS-RoFormer). 4 instruments. Slower, CPU only",
+    label: "6-Track Essential",
+    description: "Alternative (BS-RoFormer). 6 instruments. Slower, CPU only",
     recommended: false,
     meta: "CPU only · Slower",
   },
@@ -174,9 +177,36 @@ function App() {
 
   const selectedModelInfo = MODELS.find((m) => m.value === selectedModel);
 
+  const isProcessing = processing || downloading;
+  const showResults =
+    selectedFile &&
+    !processing &&
+    !downloading &&
+    metadata &&
+    stemPaths.length > 0;
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col antialiased">
-      <header className="px-6 py-3 border-b border-[#1a1a1a] flex items-center justify-between">
+      <div
+        className={`absolute inset-0 pointer-events-none transition-opacity duration-500 ${isProcessing ? "opacity-0" : "opacity-100"}`}
+      >
+        <LineWaves
+          speed={0.3}
+          innerLineCount={32}
+          outerLineCount={36}
+          warpIntensity={0.5}
+          rotation={-45}
+          edgeFadeWidth={0}
+          colorCycleSpeed={0.5}
+          brightness={0.25}
+          color1="#16a34a"
+          color2="#22c55e"
+          color3="#15803d"
+          enableMouseInteraction={false}
+        />
+      </div>
+
+      <header className="px-6 py-3 border-b border-[#1a1a1a] flex items-center justify-between relative z-10">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-green-600/20 flex items-center justify-center">
             <svg
@@ -194,8 +224,8 @@ function App() {
             </svg>
           </div>
           <div>
-            <h1 className="text-sm font-semibold tracking-tight">Stemway</h1>
-            <span className="text-[10px] text-[#888]">v0.3.0</span>
+            <h1 className="text-sm font-bold tracking-tight">Stemway</h1>
+            <span className="text-[11px] text-[#888]">v0.3.0</span>
           </div>
         </div>
         {metadata && (
@@ -208,13 +238,13 @@ function App() {
         )}
       </header>
 
-      <main className="flex-1 flex flex-col items-center px-6 py-8 overflow-y-auto">
+      <main className="flex-1 flex flex-col items-center px-6 py-8 overflow-y-auto relative z-10">
         <div className="w-full max-w-2xl sm:max-w-4xl">
           {!selectedFile && !processing && !downloading && (
             <div className="space-y-8">
               <div className="text-center mb-4">
-                <h2 className="text-xl font-semibold tracking-tight mb-2">
-                  Separate any track into stems
+                <h2 className="text-xl font-bold tracking-tight mb-2">
+                  <BlurText text="Separate any track into stems" />
                 </h2>
                 <p className="text-sm text-[#888]">
                   Choose a model, drop your file, and get isolated drums, bass,
@@ -272,28 +302,24 @@ function App() {
             </div>
           )}
 
-          {selectedFile &&
-            !processing &&
-            !downloading &&
-            metadata &&
-            stemPaths.length > 0 && (
-              <div className="space-y-6">
-                <FileInfo
-                  fileName={fileName}
-                  duration={metadata.duration_secs}
-                  sampleRate={metadata.sample_rate}
-                  channels={metadata.channels}
-                  model={metadata.model}
-                  backend={metadata.backend || null}
-                  onNewFile={clearFile}
-                />
-                <StemResults
-                  stemPaths={stemPaths}
-                  onOpenFolder={handleOpenOutputFolder}
-                  onNewFile={clearFile}
-                />
-              </div>
-            )}
+          {showResults && (
+            <div className="space-y-6">
+              <FileInfo
+                fileName={fileName}
+                duration={metadata.duration_secs}
+                sampleRate={metadata.sample_rate}
+                channels={metadata.channels}
+                model={metadata.model}
+                backend={metadata.backend || null}
+                onNewFile={clearFile}
+              />
+              <StemResults
+                stemPaths={stemPaths}
+                onOpenFolder={handleOpenOutputFolder}
+                onNewFile={clearFile}
+              />
+            </div>
+          )}
 
           {selectedFile && !processing && !downloading && !metadata && (
             <div className="space-y-4">
@@ -306,12 +332,13 @@ function App() {
                 backend={null}
                 onNewFile={clearFile}
               />
-              <button
+              <GlowButton
                 onClick={handleSeparate}
-                className="w-full bg-green-600 hover:bg-green-500 text-white font-semibold px-8 py-4 rounded-xl transition-all text-sm shadow-lg shadow-green-600/20 hover:shadow-green-500/30 active:scale-[0.99]"
+                glowColor="#16a34a"
+                className="w-full text-sm"
               >
                 Separate Stems
-              </button>
+              </GlowButton>
             </div>
           )}
         </div>
@@ -319,11 +346,11 @@ function App() {
 
       {error && <ErrorBanner message={error} onDismiss={dismissError} />}
 
-      <footer className="px-6 py-3 border-t border-[#1a1a1a] flex items-center justify-between">
-        <span className="text-[9px] text-[#aaa] tracking-wide">
+      <footer className="px-6 py-3 border-t border-[#1a1a1a] flex items-center justify-between relative z-10">
+        <span className="text-[10px] text-[#aaa] tracking-[0.08em]">
           Stemway — Local AI audio separation
         </span>
-        <span className="text-[9px] text-[#aaa] tracking-wide">
+        <span className="text-[10px] text-[#aaa] tracking-[0.08em]">
           {selectedModelInfo?.label || MODELS[0].label}
         </span>
       </footer>

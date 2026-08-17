@@ -1,4 +1,5 @@
 import { MorphingSquare } from "@/components/ui/morphing-square"
+import CountUp from "@/components/ui/count-up"
 
 function LoadingScreen({ stage, message, percent }) {
   return (
@@ -12,16 +13,21 @@ function LoadingScreen({ stage, message, percent }) {
         </div>
 
         {percent > 0 && (
-          <div className="w-full h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden mt-4">
-            <div
-              className="h-full bg-gradient-to-r from-purple-600 to-purple-400 rounded-full transition-all duration-300 ease-out"
-              style={{ width: `${percent}%` }}
-            />
+          <div>
+            <div className="w-full h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden mt-4">
+              <div
+                className="h-full bg-gradient-to-r from-purple-600 to-purple-400 rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+            <div className="text-sm font-bold text-[#555] font-mono mt-2 text-center">
+              <CountUp value={Math.round(percent)} duration={300} />%
+            </div>
           </div>
         )}
 
         {message && (
-          <div className="text-xs text-[#888] mt-3 text-center">
+          <div className="text-sm text-[#888] mt-3 text-center">
             {message}
           </div>
         )}

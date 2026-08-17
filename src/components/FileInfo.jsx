@@ -1,3 +1,6 @@
+import { useRef, useEffect, useCallback, useState } from 'react'
+import Ripple from './ui/ripple'
+
 function formatDuration(seconds) {
   if (seconds <= 0) return null
   const mins = Math.floor(seconds / 60)
@@ -47,19 +50,21 @@ function FileInfo({ fileName, duration, sampleRate, channels, model, backend, on
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-[#1a1a1a] flex items-center justify-center">
             <svg className="w-4 h-4 text-[#666]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.126-2 2-2s-2-0.874-2-2 0.895-2 2-2 2 0.874 2 2zm12-13c0 1.126-2-2-2-2s-2-0.874-2-2 0.895-2 2-2 2 0.874 2 2z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.126-2 2-2s-2-0.874-2-2 0.895-2 2-2 2 0.874 2 2zm12-13c0 1.126-2-2-2s-2-0.874-2-2 0.895-2 2-2 2 0.874 2 2z" />
             </svg>
           </div>
-          <div className="text-sm font-medium truncate">{fileName}</div>
+          <div className="text-sm font-bold truncate">{fileName}</div>
         </div>
-        <button
-          onClick={onNewFile}
-          className="text-xs text-[#aaa] hover:text-white transition-colors px-3 py-1.5 rounded-lg border border-[#2a2a2a] hover:border-[#3a3a3a] hover:bg-[#1a1a1a]"
-        >
-          Change file
-        </button>
+        <Ripple color="rgba(22,163,74,0.25)">
+            <button
+              onClick={onNewFile}
+              className="text-sm text-[#aaa] hover:text-white transition-colors px-3 py-1.5 rounded-lg border border-[#2a2a2a] hover:border-[#3a3a3a] hover:bg-[#1a1a1a]"
+            >
+              Change file
+            </button>
+        </Ripple>
       </div>
-      <div className="text-xs text-[#888]">{infoParts.join(' · ')}</div>
+      <div className="text-[11px] text-[#888]">{infoParts.join(' · ')}</div>
     </div>
   )
 }

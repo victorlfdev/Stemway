@@ -53,7 +53,7 @@ function ProgressBar({ stage, percent, message, model }) {
             </div>
           </div>
 
-          <div className="text-lg font-semibold mb-1 text-center min-h-[1.75rem]">
+          <div className="text-xl font-bold mb-1 text-center min-h-[1.75rem]">
             <span className="text-white">{CYCLES[cycleIndex]}</span>
           </div>
 
@@ -61,7 +61,7 @@ function ProgressBar({ stage, percent, message, model }) {
             {message || 'This may take a moment...'}
           </div>
 
-          <div className="text-[10px] text-[#555] font-medium tracking-wide uppercase">
+          <div className="text-[11px] text-[#555] font-semibold tracking-[0.08em] uppercase">
             {displayModel}
           </div>
 
