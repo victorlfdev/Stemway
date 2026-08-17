@@ -15,10 +15,8 @@ A local-first, open-source desktop application that separates music audio tracks
 
 ### Prerequisites
 
-**For all platforms:**
-- Rust 1.77.2 or later — [rustup](https://rustup.rs)
-- Node.js 18+ — [nvm](https://github.com/nvm-sh/nvm) or package manager
-- FFmpeg + ffprobe — [installation guide](https://ffmpeg.org/download.html)
+**For Linux:**
+- Rust 1.77.2 or later — `rustup`
 - System dependencies:
   ```bash
   # Ubuntu/Debian
@@ -29,14 +27,22 @@ A local-first, open-source desktop application that separates music audio tracks
 
   # Arch
   sudo pacman -S webkit2gtk-4.1 openssl
-
-  # Windows
-  # Install via vcpkg: vcpkg install openssl
-  # Or download binaries from openssl.org
-
-  # macOS
-  # webkit2gtk is not needed; use `brew install webkitgtk` if prompted
   ```
+
+**For macOS:**
+- Rust 1.77.2 or later — `rustup`
+- Node.js 18+ — [nvm](https://github.com/nvm-sh/nvm) or [brew](https://brew.sh)
+
+**For Windows:**
+- Rust 1.77.2 or later — `winget install Rustlang.Rustup`
+- Visual Studio C++ Build Tools — [Download](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+  - During installation, select the **"C++ build tools"** workload
+  - Ensure **"Windows 10 SDK"** and **"C++ CMake tools"** are included
+- Node.js 18+ — [nvm-windows](https://github.com/coreybutler/nvm-windows) or [installer](https://nodejs.org)
+- FFmpeg + ffprobe — `winget install ffmpeg` or `scoop install ffmpeg`
+
+**For all platforms:**
+- Python 3.8+ — required for HTDemucs and BS-RoFormer (Windows: use `pip install --user`, not `pipx`)
 
 **For model support:**
 | Model | Dependency | Required? |
@@ -160,6 +166,17 @@ These are installed automatically on first use via pipx or pip. If installation 
 pipx install demucs
 pipx install bs-roformer-infer
 ```
+On Windows, use `pip install --user demucs` instead of pipx.
+
+### BS-RoFormer.cpp won't launch (missing DLLs on Windows)
+If you see errors like `api-ms-win-core...` or `Vulkan.dll not found`:
+```bash
+# Install Vulkan runtime
+winget install LunarG.VulkanSDK
+
+# For CUDA support, install CUDA Toolkit from NVIDIA:
+# https://developer.nvidia.com/cuda-toolkit-archive
+```
 
 ### BS-RoFormer.cpp won't launch (missing libraries on Linux)
 Check with `ldd src-tauri/*/binaries/bs-roformer/bs_roformer-cli`. Common fixes:
@@ -185,7 +202,9 @@ Install FFmpeg:
 sudo apt install ffmpeg          # Ubuntu/Debian
 sudo dnf install ffmpeg          # Fedora
 brew install ffmpeg              # macOS
+winget install ffmpeg            # Windows (winget, recommended)
 choco install ffmpeg             # Windows (Chocolatey)
+scoop install ffmpeg             # Windows (scoop)
 ```
 
 ## License
