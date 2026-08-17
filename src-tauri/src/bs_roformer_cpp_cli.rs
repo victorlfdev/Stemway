@@ -196,19 +196,24 @@ pub async fn get_binary_path() -> Result<PathBuf, String> {
 }
 
 async fn download_to_file(url: &str, dest: &Path) -> Result<(), String> {
-    let output = std::process::Command::new("curl")
-        .args(["-sL", "--output", dest.to_str().ok_or("Invalid dest path")?, url])
-        .output()
-        .map_err(|e| format!("Failed to run curl: {}", e))?;
+    let client = reqwest::Client::new();
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to download from {}: {}", url, e))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        return Err(format!(
-            "curl failed (status: {}): stderr={}, stdout={}",
-            output.status, stderr, stdout
-        ));
+    if !response.status().is_success() {
+        return Err(format!("Download failed (status: {})", response.status()));
     }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read response bytes: {}", e))?;
+
+    std::fs::write(dest, &bytes)
+        .map_err(|e| format!("Failed to write download to file: {}", e))?;
 
     Ok(())
 }
@@ -239,18 +244,16 @@ async fn extract_tar_xz_all(
     let temp_tar = dest_dir.join("temp_download.tar.xz");
     download_to_file(url, &temp_tar).await?;
 
-    let output = std::process::Command::new("tar")
-        .args(["-xJf", "temp_download.tar.xz"])
-        .current_dir(dest_dir)
-        .output()
-        .map_err(|e| format!("Failed to run tar: {}", e))?;
+    let compressed = std::fs::read(&temp_tar)
+        .map_err(|e| format!("Failed to read tar.xz file: {}", e))?;
+
+    let decoder = xz2::read::XzDecoder::new_multi_decoder(std::io::Cursor::new(&compressed));
+    let mut archive = tar::Archive::new(decoder);
+    archive
+        .unpack(dest_dir)
+        .map_err(|e| format!("Failed to extract tar archive: {}", e))?;
 
     let _ = std::fs::remove_file(&temp_tar);
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        return Err(format!("tar extract failed: {}", stderr));
-    }
 
     let binary_path = dest_dir.join(BSROFORMER_BINARY_NAME);
     if !binary_path.exists() {
@@ -297,18 +300,34 @@ async fn extract_zip_all(url: &str, dest_dir: &Path) -> Result<(), String> {
     let temp_zip = dest_dir.join("temp_download.zip");
     download_to_file(url, &temp_zip).await?;
 
-    let output = std::process::Command::new("unzip")
-        .args(["-o", "temp_download.zip", "-d", "."])
-        .current_dir(dest_dir)
-        .output()
-        .map_err(|e| format!("Failed to run unzip: {}", e))?;
+    let file = std::fs::File::open(&temp_zip)
+        .map_err(|e| format!("Failed to open zip file: {}", e))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|e| format!("Failed to parse zip archive: {}", e))?;
+
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).map_err(|e| format!("Failed to read zip entry {}: {}", i, e))?;
+        let out_path = match entry.enclosed_name() {
+            Some(path) => dest_dir.join(path),
+            None => continue,
+        };
+
+        if entry.is_dir() {
+            std::fs::create_dir_all(&out_path)
+                .map_err(|e| format!("Failed to create directory: {}", e))?;
+        } else {
+            if let Some(parent) = out_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("Failed to create parent directory: {}", e))?;
+            }
+            let mut outfile = std::fs::File::create(&out_path)
+                .map_err(|e| format!("Failed to create file: {}", e))?;
+            std::io::copy(&mut entry, &mut outfile)
+                .map_err(|e| format!("Failed to extract file: {}", e))?;
+        }
+    }
 
     let _ = std::fs::remove_file(&temp_zip);
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        return Err(format!("unzip extract failed: {}", stderr));
-    }
 
     let binary_path = dest_dir.join(BSROFORMER_BINARY_NAME);
     if !binary_path.exists() {
