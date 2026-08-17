@@ -1,3 +1,4 @@
+pub mod audio;
 pub mod bs_roformer_cli;
 pub mod bs_roformer_output;
 pub mod bs_roformer_cpp_cli;
@@ -15,6 +16,8 @@ pub fn run() {
 }
 
 pub fn tauri_app() {
+    let audio = audio::AudioContext::new();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -29,11 +32,19 @@ pub fn tauri_app() {
             scope.allow_directory(&temp_dir, true)?;
             Ok(())
         })
+        .manage(audio)
         .invoke_handler(tauri::generate_handler![
             commands::process_file,
             commands::open_output_folder,
             commands::get_file_size,
             commands::probe_file,
+            commands::audio_load_stems,
+            commands::audio_toggle_playback,
+            commands::audio_set_volume,
+            commands::audio_set_mute,
+            commands::audio_set_solo,
+            commands::audio_get_stem_count,
+            commands::audio_get_stems,
         ])
         .run(tauri::generate_context!())
         .expect("error while running stemway tauri app");
