@@ -11,41 +11,68 @@ pub struct BsRoformerProgress {
 }
 
 pub fn is_bs_roformer_installed() -> bool {
-    matches!(
-        std::process::Command::new("bs-roformer-infer")
+    let candidates = ["bs-roformer-infer", "bs-roformer-infer.exe"];
+    for cmd in &candidates {
+        let output = std::process::Command::new(cmd)
             .args(["--help"])
-            .output()
-            .map(|o| o.status.success()),
-        Ok(true)
-    )
+            .output();
+
+        if let Ok(o) = output {
+            if o.status.success() {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn install_via_pipx() -> Result<(), String> {
-    let output = std::process::Command::new("pipx")
-        .args(["install", "bs-roformer-infer"])
-        .output()
-        .map_err(|e| format!("pipx install failed: {}", e))?;
+    let strategies = vec![
+        vec!["pipx", "install", "bs-roformer-infer"],
+        vec!["pip", "install", "--user", "bs-roformer-infer"],
+        vec!["pip3", "install", "--user", "bs-roformer-infer"],
+        vec!["python3", "-m", "pip", "install", "--user", "bs-roformer-infer"],
+        vec!["python", "-m", "pip", "install", "--user", "bs-roformer-infer"],
+        vec!["py", "-m", "pip", "install", "--user", "bs-roformer-infer"],
+    ];
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("pipx install bs-roformer-infer failed: {}", stderr));
+    for args in &strategies {
+        let output = std::process::Command::new(&args[0])
+            .args(&args[1..])
+            .output();
+
+        match output {
+            Ok(o) if o.status.success() => return Ok(()),
+            Ok(_) => continue,
+            Err(_) => continue,
+        }
     }
 
-    Ok(())
+    Err("No pip executable found. Python 3.x is required for BS-RoFormer.".to_string())
 }
 
 fn install_via_pip() -> Result<(), String> {
-    let output = std::process::Command::new("pip3")
-        .args(["install", "--user", "bs-roformer-infer"])
-        .output()
-        .map_err(|e| format!("pip install failed: {}", e))?;
+    let strategies = vec![
+        vec!["pip", "install", "--user", "bs-roformer-infer"],
+        vec!["pip3", "install", "--user", "bs-roformer-infer"],
+        vec!["python3", "-m", "pip", "install", "--user", "bs-roformer-infer"],
+        vec!["python", "-m", "pip", "install", "--user", "bs-roformer-infer"],
+        vec!["py", "-m", "pip", "install", "--user", "bs-roformer-infer"],
+    ];
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("pip install bs-roformer-infer failed: {}", stderr));
+    for args in &strategies {
+        let output = std::process::Command::new(&args[0])
+            .args(&args[1..])
+            .output();
+
+        match output {
+            Ok(o) if o.status.success() => return Ok(()),
+            Ok(_) => continue,
+            Err(_) => continue,
+        }
     }
 
-    Ok(())
+    Err("pip install failed: No pip executable found. Python 3.x is required for BS-RoFormer.".to_string())
 }
 
 pub fn ensure_bs_roformer_installed() -> Result<PathBuf, String> {

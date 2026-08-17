@@ -270,3 +270,180 @@ pub async fn process_file(
         }
     }
 }
+
+#[derive(serde::Serialize)]
+pub struct StemInfo {
+    pub id: String,
+    pub muted: bool,
+    pub soloed: bool,
+    pub volume: f32,
+}
+
+#[derive(serde::Serialize)]
+pub struct AudioLoadResult {
+    pub stem_count: usize,
+}
+
+#[tauri::command]
+pub fn audio_load_stems(
+    audio: tauri::State<'_, crate::audio::AudioContext>,
+    stem_paths: Vec<(String, String)>,
+) -> Result<AudioLoadResult, String> {
+    let stem_count = stem_paths.len();
+    eprintln!("[Audio IPC] load_stems → {} stems", stem_count);
+    for (name, path) in &stem_paths {
+        eprintln!("  [Audio IPC]   {} → {}", name, path);
+    }
+    let tx = audio.tx.lock().map_err(|e| format!("Failed to lock tx: {}", e))?;
+    let sender = tx.as_ref()
+        .ok_or("Audio context not initialized")?;
+
+    let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
+    let cmd = crate::audio::AudioCommand::LoadStems {
+        stem_paths,
+        response: response_tx,
+    };
+    sender.send(cmd).map_err(|e| format!("Failed to send load command: {}", e))?;
+    drop(tx);
+    let loaded_ids = response_rx.recv().map_err(|e| format!("Load failed: {}", e))??;
+    eprintln!("[Audio IPC] load_stems → OK ({} stems confirmed)", loaded_ids.len());
+
+    Ok(AudioLoadResult {
+        stem_count: loaded_ids.len(),
+    })
+}
+
+#[tauri::command]
+pub fn audio_toggle_playback(
+    audio: tauri::State<'_, crate::audio::AudioContext>,
+) -> Result<(), String> {
+    eprintln!("[Audio IPC] toggle_playback");
+    let tx = audio.tx.lock().map_err(|e| format!("Failed to lock tx: {}", e))?;
+    let sender = tx.as_ref()
+        .ok_or("Audio context not initialized")?;
+
+    let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
+    let cmd = crate::audio::AudioCommand::TogglePlayback {
+        response: response_tx,
+    };
+    sender.send(cmd).map_err(|e| format!("Failed to send toggle command: {}", e))?;
+    drop(tx);
+    response_rx.recv().map_err(|e| format!("Toggle failed: {}", e))??;
+    eprintln!("[Audio IPC] toggle_playback → OK");
+    Ok(())
+}
+
+#[tauri::command]
+pub fn audio_set_volume(
+    audio: tauri::State<'_, crate::audio::AudioContext>,
+    id: String,
+    volume: f32,
+) -> Result<(), String> {
+    eprintln!("[Audio IPC] set_volume → id={}, volume={:.2}", id, volume);
+    let tx = audio.tx.lock().map_err(|e| format!("Failed to lock tx: {}", e))?;
+    let sender = tx.as_ref()
+        .ok_or("Audio context not initialized")?;
+
+    let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
+    let cmd = crate::audio::AudioCommand::SetVolume {
+        id,
+        volume,
+        response: response_tx,
+    };
+    sender.send(cmd).map_err(|e| format!("Failed to send volume command: {}", e))?;
+    drop(tx);
+    response_rx.recv().map_err(|e| format!("Volume command failed: {}", e))??;
+    eprintln!("[Audio IPC] set_volume → OK");
+    Ok(())
+}
+
+#[tauri::command]
+pub fn audio_set_mute(
+    audio: tauri::State<'_, crate::audio::AudioContext>,
+    id: String,
+    muted: bool,
+) -> Result<(), String> {
+    eprintln!("[Audio IPC] set_mute → id={}, muted={}", id, muted);
+    let tx = audio.tx.lock().map_err(|e| format!("Failed to lock tx: {}", e))?;
+    let sender = tx.as_ref()
+        .ok_or("Audio context not initialized")?;
+
+    let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
+    let cmd = crate::audio::AudioCommand::SetMute {
+        id,
+        muted,
+        response: response_tx,
+    };
+    sender.send(cmd).map_err(|e| format!("Failed to send mute command: {}", e))?;
+    drop(tx);
+    response_rx.recv().map_err(|e| format!("Mute command failed: {}", e))??;
+    eprintln!("[Audio IPC] set_mute → OK");
+    Ok(())
+}
+
+#[tauri::command]
+pub fn audio_set_solo(
+    audio: tauri::State<'_, crate::audio::AudioContext>,
+    id: String,
+    solo: bool,
+) -> Result<(), String> {
+    eprintln!("[Audio IPC] set_solo → id={}, solo={}", id, solo);
+    let tx = audio.tx.lock().map_err(|e| format!("Failed to lock tx: {}", e))?;
+    let sender = tx.as_ref()
+        .ok_or("Audio context not initialized")?;
+
+    let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
+    let cmd = crate::audio::AudioCommand::SetSolo {
+        id,
+        solo,
+        response: response_tx,
+    };
+    sender.send(cmd).map_err(|e| format!("Failed to send solo command: {}", e))?;
+    drop(tx);
+    response_rx.recv().map_err(|e| format!("Solo command failed: {}", e))??;
+    eprintln!("[Audio IPC] set_solo → OK");
+    Ok(())
+}
+
+#[tauri::command]
+pub fn audio_get_stem_count(
+    audio: tauri::State<'_, crate::audio::AudioContext>,
+) -> Result<usize, String> {
+    let tx = audio.tx.lock().map_err(|e| format!("Failed to lock tx: {}", e))?;
+    let sender = tx.as_ref()
+        .ok_or("Audio context not initialized")?;
+
+    let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
+    let cmd = crate::audio::AudioCommand::GetStemCount {
+        response: response_tx,
+    };
+    sender.send(cmd).map_err(|e| format!("Failed to send count command: {}", e))?;
+    drop(tx);
+    Ok(response_rx.recv().map_err(|e| format!("Count command failed: {}", e))?.unwrap())
+}
+
+#[tauri::command]
+pub fn audio_get_stems(
+    audio: tauri::State<'_, crate::audio::AudioContext>,
+) -> Result<Vec<StemInfo>, String> {
+    let tx = audio.tx.lock().map_err(|e| format!("Failed to lock tx: {}", e))?;
+    let sender = tx.as_ref()
+        .ok_or("Audio context not initialized")?;
+
+    let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
+    let cmd = crate::audio::AudioCommand::GetStems {
+        response: response_tx,
+    };
+    sender.send(cmd).map_err(|e| format!("Failed to send stems command: {}", e))?;
+    drop(tx);
+    let stems = response_rx.recv().map_err(|e| format!("Stems command failed: {}", e))??;
+    Ok(stems
+        .into_iter()
+        .map(|(id, muted, soloed, volume)| StemInfo {
+            id,
+            muted,
+            soloed,
+            volume,
+        })
+        .collect())
+}

@@ -7,7 +7,7 @@ function ErrorBanner({ message, onDismiss }) {
         <span className="text-red-200 text-sm">{message}</span>
         <button
           onClick={onDismiss}
-          className="text-red-500 hover:text-white text-xs transition-colors shrink-0 px-2 py-1 rounded hover:bg-red-900/50"
+           className="text-red-500 hover:text-white text-sm transition-colors shrink-0 px-2 py-1 rounded hover:bg-red-900/50"
           aria-label="Dismiss error"
         >
           ✕
