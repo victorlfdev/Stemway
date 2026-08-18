@@ -47,6 +47,7 @@ jobs:
             librsvg2-dev \
             patchelf \
             libssl-dev \
+            libasound-dev \
             build-essential
 
       - name: Install frontend dependencies
@@ -56,4 +57,3 @@ jobs:
         uses: tauri-apps/tauri-action@v0.6.2
         with:
           args: ""
-          uploadWorkflowArtifacts: true

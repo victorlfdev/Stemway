@@ -42,6 +42,7 @@ jobs:
             librsvg2-dev \
             patchelf \
             libssl-dev \
+            libasound-dev \
             build-essential
 
       - name: Install frontend dependencies
