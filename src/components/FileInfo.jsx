@@ -18,13 +18,13 @@ function formatSampleRate(hz) {
 
 function formatModelName(model) {
   switch (model) {
-    case 'bs-roformer': return '4-Track Essential'
+    case 'bs-roformer': return '6-Track Essential'
     case 'bs-roformer-cpp': return '6-Track Premium'
-    default: return '4-Track Standard'
+    default: return '6-Track Standard'
   }
 }
 
-function FileInfo({ fileName, duration, sampleRate, channels, model, backend, onNewFile }) {
+function FileInfo({ fileName, duration, sampleRate, channels, model, backend, onNewFile, busy = false }) {
   const durationStr = formatDuration(duration)
   const srStr = formatSampleRate(sampleRate)
 
@@ -58,6 +58,7 @@ function FileInfo({ fileName, duration, sampleRate, channels, model, backend, on
         <Ripple color="rgba(22,163,74,0.25)">
             <button
               onClick={onNewFile}
+              disabled={busy}
               className="text-sm text-[#aaa] hover:text-white transition-colors px-3 py-1.5 rounded-lg border border-[#2a2a2a] hover:border-[#3a3a3a] hover:bg-[#1a1a1a]"
             >
               Change file

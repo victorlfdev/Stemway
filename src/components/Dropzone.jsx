@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 import Ripple from './ui/ripple'
 
 const AUDIO_FILTERS = [{
@@ -7,10 +8,24 @@ const AUDIO_FILTERS = [{
   extensions: ['wav', 'mp3', 'flac', 'ogg', 'aiff', 'aif']
 }]
 
-function Dropzone({ onFileSelect }) {
+function Dropzone({ onFileSelect, onError }) {
   const [dragging, setDragging] = useState(false)
   const [blobPos, setBlobPos] = useState({ x: 0, y: 0 })
   const containerRef = useRef(null)
+
+  useEffect(() => {
+    let disposed = false
+    let unlisten
+    getCurrentWebview().onDragDropEvent(({ payload }) => {
+      if (disposed) return
+      setDragging(payload.type === 'over' || payload.type === 'enter')
+      if (payload.type === 'drop' && payload.paths?.[0]) onFileSelect(payload.paths[0])
+    }).then((stop) => {
+      if (disposed) stop()
+      else unlisten = stop
+    }).catch((err) => onError?.(`Failed to enable file drop: ${err}`))
+    return () => { disposed = true; unlisten?.() }
+  }, [onFileSelect, onError])
 
   const pickFile = useCallback(async () => {
     try {
@@ -23,17 +38,16 @@ function Dropzone({ onFileSelect }) {
         onFileSelect(selected)
       }
     } catch (err) {
-      console.error('Failed to select file:', err)
+      onError?.(`Failed to select file: ${err}`)
     }
-  }, [onFileSelect])
+  }, [onFileSelect, onError])
 
   const handleDrop = useCallback((e) => {
     e.preventDefault()
     setDragging(false)
     const file = e.dataTransfer.files[0]
     if (file) {
-      const path = file.path || `/tmp/dropped-${file.name}`
-      onFileSelect(path)
+      if (file.path) onFileSelect(file.path)
     }
   }, [onFileSelect])
 
@@ -68,6 +82,9 @@ function Dropzone({ onFileSelect }) {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onClick={pickFile}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); pickFile() }
+      }}
       onMouseMove={handleMouseMove}
       role="button"
       tabIndex={0}

@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use tokio::process::Command as TokioCommand;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -10,105 +9,8 @@ pub struct DemucsProgress {
     pub message: String,
 }
 
-pub fn is_demucs_installed() -> bool {
-    let candidates = ["demucs", "demucs.exe"];
-    for cmd in &candidates {
-        let output = std::process::Command::new(cmd)
-            .args(["--help"])
-            .output();
-
-        if let Ok(o) = output {
-            if o.status.success() {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-fn install_via_pipx() -> Result<(), String> {
-    let strategies = vec![
-        vec!["pipx", "install", "demucs"],
-        vec!["pip", "install", "--user", "demucs"],
-        vec!["pip3", "install", "--user", "demucs"],
-        vec!["python3", "-m", "pip", "install", "--user", "demucs"],
-        vec!["python", "-m", "pip", "install", "--user", "demucs"],
-        vec!["py", "-m", "pip", "install", "--user", "demucs"],
-    ];
-
-    for args in &strategies {
-        let output = std::process::Command::new(&args[0])
-            .args(&args[1..])
-            .output();
-
-        match output {
-            Ok(o) if o.status.success() => return Ok(()),
-            Ok(_) => continue,
-            Err(_) => continue,
-        }
-    }
-
-    Err("No pip executable found. Python 3.x is required for HTDemucs.".to_string())
-}
-
-fn install_via_pip() -> Result<(), String> {
-    let strategies = vec![
-        vec!["pip", "install", "--user", "demucs"],
-        vec!["pip3", "install", "--user", "demucs"],
-        vec!["python3", "-m", "pip", "install", "--user", "demucs"],
-        vec!["python", "-m", "pip", "install", "--user", "demucs"],
-        vec!["py", "-m", "pip", "install", "--user", "demucs"],
-    ];
-
-    for args in &strategies {
-        let output = std::process::Command::new(&args[0])
-            .args(&args[1..])
-            .output();
-
-        match output {
-            Ok(o) if o.status.success() => return Ok(()),
-            Ok(_) => continue,
-            Err(_) => continue,
-        }
-    }
-
-    Err("pip install failed: No pip executable found. Python 3.x is required for HTDemucs.".to_string())
-}
-
 pub fn ensure_demucs_installed() -> Result<PathBuf, String> {
-    if is_demucs_installed() {
-        return Ok(PathBuf::from("demucs"));
-    }
-
-    eprintln!("demucs not found. Installing via pipx...");
-    if let Err(e) = install_via_pipx() {
-        eprintln!("pipx install failed: {}. Trying pip...", e);
-        if let Err(e2) = install_via_pip() {
-            return Err(format!("Both pipx and pip failed: {}", e2));
-        }
-    }
-
-    Ok(PathBuf::from("demucs"))
-}
-
-pub fn run_demucs_cli(input_path: &Path, output_dir: &Path) -> Result<String, String> {
-    let output = std::process::Command::new("demucs")
-        .args([
-            "-n", "htdemucs_6s",
-            "-o", output_dir.to_str().ok_or("Invalid output dir")?,
-            input_path.to_str().ok_or("Invalid input path")?,
-        ])
-        .output()
-        .map_err(|e| format!("Failed to run demucs: {}", e))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    if !output.status.success() {
-        return Err(format!("demucs failed: {}", stderr));
-    }
-
-    Ok(stdout.to_string())
+    crate::python_tools::ensure_tool("demucs", "demucs==4.0.1")
 }
 
 pub async fn run_demucs_cli_with_progress<F>(
@@ -119,121 +21,65 @@ pub async fn run_demucs_cli_with_progress<F>(
 where
     F: Fn(DemucsProgress) + Send + Sync + 'static,
 {
-    let stdout_pipe = Stdio::piped();
-
-    let mut cmd = TokioCommand::new("demucs");
-    cmd.args([
-        "-n", "htdemucs_6s",
-        "-o", output_dir.to_str().ok_or("Invalid output dir")?,
-        input_path.to_str().ok_or("Invalid input path")?,
-    ])
-    .stdout(stdout_pipe)
-    .stderr(Stdio::piped())
-    .kill_on_drop(true);
-
+    progress_callback(DemucsProgress {
+        stage: "Preparing".into(),
+        percent: 0.0,
+        message: "Preparing HTDemucs (first use may install Python dependencies)...".into(),
+    });
+    let executable = tauri::async_runtime::spawn_blocking(ensure_demucs_installed)
+        .await
+        .map_err(|e| e.to_string())??;
+    let mut cmd = tokio::process::Command::new(executable);
+    cmd.args(["-n", "htdemucs_6s", "--shifts", "1", "-d", "cpu", "-o"])
+        .arg(output_dir)
+        .arg(input_path)
+        .env("PYTHONUNBUFFERED", "1")
+        .env("PYTHONUTF8", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000);
     let mut process = cmd
         .spawn()
-        .map_err(|e| format!("Failed to spawn demucs process: {}", e))?;
-
-    let stderr = process
-        .stderr
-        .take()
-        .ok_or("Failed to take stderr handle")?;
-
-    let progress_callback = std::sync::Arc::new(progress_callback);
-    let overall_progress = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0));
-
-    let overall = std::sync::Arc::clone(&overall_progress);
-    let cb = std::sync::Arc::clone(&progress_callback);
-    tokio::spawn(async move {
-        let reader = BufReader::new(stderr);
-        let mut lines = reader.lines();
-
-        while let Ok(Some(line_result)) = lines.next_line().await {
-            let stripped: String = line_result
-                .chars()
-                .filter(|c| !c.is_ascii_control())
-                .collect();
-
-                    if stripped.contains("Separating track") || stripped.contains("separating") {
-                        (cb)(DemucsProgress {
-                            stage: "Separating".to_string(),
-                            percent: 0.0,
-                            message: "Separating audio...".to_string(),
-                        });
-                    }
-
-                    if stripped.contains('%') && stripped.contains('|') {
-                        if let Some(pct_str) = stripped.split('%').next().and_then(|s| {
-                            s.trim().split(' ').last().and_then(|s| s.trim().parse::<f64>().ok())
-                        }) {
-                            let pct = (pct_str / 100.0 * 90.0).min(89.0);
-                            (cb)(DemucsProgress {
-                                stage: "Processing".to_string(),
-                                percent: pct,
-                                message: format!("Processing: {:.0}%", pct_str),
-                            });
-                        }
-                    }
-                }
-    });
-
-    let overall_clone = std::sync::Arc::clone(&overall);
-    let cb_clone = std::sync::Arc::clone(&progress_callback);
-    let (stdout_tx, mut stdout_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-
-    {
-        let stdout_tx_clone = stdout_tx;
-        tokio::spawn(async move {
-            let result = process
-                .wait_with_output()
-                .await
-                .map_err(|e| format!("Failed to wait for demucs: {}", e));
-
-            match result {
-                Ok(output) => {
-                    let stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
-                    let status = output.status;
-                    if status.success() {
-                        (cb_clone)(DemucsProgress {
-                            stage: "Complete".to_string(),
-                            percent: 100.0,
-                            message: "Stems separated!".to_string(),
-                        });
-                    } else {
-                        (cb_clone)(DemucsProgress {
-                            stage: "Error".to_string(),
-                            percent: 0.0,
-                            message: format!("demucs exited with status: {}", status),
-                        });
-                    }
-                    let _ = stdout_tx_clone.send(stdout_str);
-                }
-                Err(e) => {
-                    (cb_clone)(DemucsProgress {
-                        stage: "Error".to_string(),
-                        percent: 0.0,
-                        message: e.to_string(),
+        .map_err(|e| format!("Failed to start HTDemucs: {e}"))?;
+    let stderr = process.stderr.take().ok_or("Missing HTDemucs stderr")?;
+    let callback = std::sync::Arc::new(progress_callback);
+    let cb = callback.clone();
+    let stderr_task = tokio::spawn(async move {
+        let mut lines = BufReader::new(stderr).lines();
+        let mut errors = String::new();
+        while let Some(line) = lines.next_line().await.map_err(|e| e.to_string())? {
+            errors.push_str(&line);
+            errors.push('\n');
+            if let Some(before) = line.split('%').next().filter(|_| line.contains('%')) {
+                if let Some(percent) = before
+                    .split_whitespace()
+                    .last()
+                    .and_then(|p| p.parse::<f64>().ok())
+                {
+                    cb(DemucsProgress {
+                        stage: "Processing".into(),
+                        percent: percent.min(99.0),
+                        message: "Separating audio...".into(),
                     });
                 }
             }
-            overall_clone.store(1, std::sync::atomic::Ordering::SeqCst);
-        });
+        }
+        Ok::<_, String>(errors)
+    });
+    let output = process
+        .wait_with_output()
+        .await
+        .map_err(|e| e.to_string())?;
+    let stderr = stderr_task.await.map_err(|e| e.to_string())??;
+    if !output.status.success() {
+        return Err(format!("HTDemucs failed ({}): {stderr}", output.status));
     }
-
-    let stdout = match stdout_rx.recv().await {
-        Some(s) if !s.is_empty() => s,
-        _ => String::new(),
-    };
-
-    if !stdout.is_empty() {
-        eprintln!("{}", stdout);
-    }
-
-    let total_time = overall.load(std::sync::atomic::Ordering::SeqCst);
-    if total_time == 0 {
-        return Err("demucs process did not complete".to_string());
-    }
-
-    Ok(stdout)
+    callback(DemucsProgress {
+        stage: "Complete".into(),
+        percent: 100.0,
+        message: "Stems separated!".into(),
+    });
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }

@@ -57,8 +57,14 @@ function App() {
   const [error, setError] = useState(null);
   const [downloading, setDownloading] = useState(false);
   const unlistenRef = useRef(null);
+  const selectionRef = useRef(0);
+  const processingRef = useRef(false);
+
+  useEffect(() => () => unlistenRef.current?.(), []);
 
   const clearFile = useCallback(() => {
+    if (processingRef.current) return;
+    selectionRef.current += 1;
     setSelectedFile(null);
     setFileInfo(null);
     setMetadata(null);
@@ -75,13 +81,16 @@ function App() {
 
   const probeAndSelectFile = useCallback(
     async (path) => {
+      if (processingRef.current) return;
       clearFile();
-      setSelectedFile(path);
+      const selection = selectionRef.current;
       try {
         const info = await invoke("probe_file", { path });
+        if (selection !== selectionRef.current) return;
+        setSelectedFile(path);
         setFileInfo(info);
       } catch (err) {
-        console.error("Failed to probe file:", err);
+        if (selection === selectionRef.current) setError(`Failed to read audio file: ${err}`);
       }
     },
     [clearFile],
@@ -124,7 +133,7 @@ function App() {
         } else if (data && data.message && !data.percent) {
           setProgress({
             stage: data.message,
-            percent: progress.percent,
+            percent: 0,
             message: "",
           });
         }
@@ -132,10 +141,12 @@ function App() {
     } catch (err) {
       console.error("Failed to listen for progress:", err);
     }
-  }, [selectedModel, progress.percent]);
+  }, [selectedModel]);
 
   const handleSeparate = useCallback(async () => {
-    if (!selectedFile) return;
+    if (!selectedFile || processingRef.current) return;
+    processingRef.current = true;
+    setError(null);
 
     setProcessing(true);
     setDownloading(false);
@@ -162,6 +173,10 @@ function App() {
       setError(String(err));
       setProcessing(false);
       setDownloading(false);
+    } finally {
+      processingRef.current = false;
+      unlistenRef.current?.();
+      unlistenRef.current = null;
     }
   }, [selectedFile, selectedModel, setupProgressListener]);
 
@@ -173,7 +188,7 @@ function App() {
     }
   }, []);
 
-  const fileName = selectedFile ? selectedFile.split("/").pop() : null;
+  const fileName = selectedFile ? selectedFile.split(/[\\/]/).pop() : null;
 
   const selectedModelInfo = MODELS.find((m) => m.value === selectedModel);
 
@@ -258,7 +273,7 @@ function App() {
                 models={MODELS}
               />
 
-              <Dropzone onFileSelect={handleFileSelect} />
+              <Dropzone onFileSelect={handleFileSelect} onError={setError} />
             </div>
           )}
 
@@ -293,6 +308,7 @@ function App() {
                 model={selectedModel}
                 backend={metadata?.backend || null}
                 onNewFile={clearFile}
+                busy={isProcessing}
               />
               <LoadingScreen
                 stage={progress.stage}

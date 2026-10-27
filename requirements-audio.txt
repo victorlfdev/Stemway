@@ -1,0 +1,6 @@
+# Tested on Windows x64 with Python 3.12. Keep torch and torchaudio paired.
+torch==2.5.1
+torchaudio==2.5.1
+soundfile==0.14.0
+demucs==4.0.1
+bs-roformer-infer==0.1.5

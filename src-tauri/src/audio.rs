@@ -8,7 +8,12 @@ pub struct AudioContext {
     pub tx: std::sync::Mutex<Option<mpsc::SyncSender<AudioCommand>>>,
 }
 
+type StemState = (String, bool, bool, f32);
+
 pub enum AudioCommand {
+    GetPlaybackState {
+        response: mpsc::SyncSender<Result<bool, String>>,
+    },
     LoadStems {
         stem_paths: Vec<(String, String)>,
         response: mpsc::SyncSender<Result<Vec<String>, String>>,
@@ -35,22 +40,21 @@ pub enum AudioCommand {
         response: mpsc::SyncSender<Result<usize, String>>,
     },
     GetStems {
-        response: mpsc::SyncSender<Result<Vec<(String, bool, bool, f32)>, String>>,
+        response: mpsc::SyncSender<Result<Vec<StemState>, String>>,
     },
 }
 
 pub struct AudioManager {
-    stream: rodio::OutputStream,
+    _stream: rodio::OutputStream,
     stream_handle: rodio::OutputStreamHandle,
     stems: HashMap<String, StemTrack>,
     is_playing: bool,
     solo_stems: HashSet<String>,
-    pre_solo_states: HashMap<String, (f32, bool)>,
 }
 
 struct StemTrack {
     sink: Sink,
-    id: String,
+    path: String,
     base_volume: f32,
     is_muted: bool,
     is_soloed: bool,
@@ -59,12 +63,11 @@ struct StemTrack {
 impl AudioManager {
     fn new(stream: rodio::OutputStream, stream_handle: rodio::OutputStreamHandle) -> Self {
         Self {
-            stream,
+            _stream: stream,
             stream_handle,
             stems: HashMap::new(),
             is_playing: false,
             solo_stems: HashSet::new(),
-            pre_solo_states: HashMap::new(),
         }
     }
 
@@ -86,13 +89,12 @@ impl AudioManager {
         }
 
         if loaded_ids.len() == path_count {
-            for (_id, track) in &new_stems {
+            for track in new_stems.values() {
                 track.sink.pause();
             }
             self.stems = new_stems;
             self.is_playing = false;
             self.solo_stems.clear();
-            self.pre_solo_states.clear();
             Ok(loaded_ids)
         } else {
             Err("Failed to load some stems".into())
@@ -100,136 +102,74 @@ impl AudioManager {
     }
 
     fn toggle_playback(&mut self) -> Result<(), String> {
-        if self.is_playing {
+        if self.stems.is_empty() {
+            return Err("No stems loaded".into());
+        }
+        if self.stems.values().all(|track| track.sink.empty()) {
             for track in self.stems.values_mut() {
+                let file = File::open(&track.path).map_err(|e| e.to_string())?;
+                let decoder = Decoder::new(BufReader::new(file)).map_err(|e| e.to_string())?;
                 track.sink.pause();
+                track.sink.append(decoder);
             }
-        } else {
-            for track in self.stems.values_mut() {
-                if !track.is_muted
-                    && (self.solo_stems.is_empty() || self.solo_stems.contains(&track.id))
-                {
-                    track.sink.play();
-                }
-            }
+            self.is_playing = false;
         }
         self.is_playing = !self.is_playing;
+        // Muted and non-soloed tracks must keep advancing to stay in sync.
+        for track in self.stems.values() {
+            if self.is_playing {
+                track.sink.play();
+            } else {
+                track.sink.pause();
+            }
+        }
         Ok(())
     }
 
-    fn set_volume(&mut self, id: &str, volume: f32) -> Result<(), String> {
-        if let Some(track) = self.stems.get_mut(id) {
-            let was_soloed = self.solo_stems.contains(id);
-            track.base_volume = volume;
-            track.is_muted = false;
-            track.is_soloed = was_soloed;
-            let effective_vol = if self.solo_stems.is_empty() || self.solo_stems.contains(id) {
-                volume
-            } else {
-                0.0
-            };
-            track.sink.set_volume(effective_vol);
-            if self.is_playing && !track.is_muted {
-                track.sink.play();
-            }
-            Ok(())
-        } else {
-            Err(format!("Stem not found: {}", id))
+    fn update_gains(&self) {
+        for (id, track) in &self.stems {
+            track.sink.set_volume(effective_volume(
+                track.base_volume,
+                track.is_muted,
+                !self.solo_stems.is_empty(),
+                self.solo_stems.contains(id),
+            ));
         }
+    }
+
+    fn set_volume(&mut self, id: &str, volume: f32) -> Result<(), String> {
+        if !volume.is_finite() || !(0.0..=1.0).contains(&volume) {
+            return Err("Volume must be between 0 and 1".into());
+        }
+        self.stems
+            .get_mut(id)
+            .ok_or_else(|| format!("Stem not found: {id}"))?
+            .base_volume = volume;
+        self.update_gains();
+        Ok(())
     }
 
     fn set_mute(&mut self, id: &str, muted: bool) -> Result<(), String> {
-        if let Some(track) = self.stems.get_mut(id) {
-            let was_soloed = self.solo_stems.contains(id);
-            track.is_muted = muted;
-            track.is_soloed = was_soloed;
-
-            if muted {
-                track.sink.set_volume(0.0);
-            } else {
-                let vol = if self.solo_stems.is_empty() || self.solo_stems.contains(id) {
-                    track.base_volume
-                } else {
-                    0.0
-                };
-                track.sink.set_volume(vol);
-                if self.is_playing {
-                    track.sink.play();
-                }
-            }
-            Ok(())
-        } else {
-            Err(format!("Stem not found: {}", id))
-        }
+        self.stems
+            .get_mut(id)
+            .ok_or_else(|| format!("Stem not found: {id}"))?
+            .is_muted = muted;
+        self.update_gains();
+        Ok(())
     }
 
     fn set_solo(&mut self, id: &str, solo: bool) -> Result<(), String> {
+        self.stems
+            .get_mut(id)
+            .ok_or_else(|| format!("Stem not found: {id}"))?
+            .is_soloed = solo;
         if solo {
-            if self.solo_stems.is_empty() {
-                for (sid, track) in self.stems.iter() {
-                    self.pre_solo_states.insert(sid.clone(), (track.base_volume, track.is_muted));
-                }
-            }
-            self.solo_stems.insert(id.to_string());
-            for (sid, track) in self.stems.iter_mut() {
-                let vol = if self.solo_stems.contains(sid) {
-                    track.base_volume
-                } else {
-                    0.0
-                };
-                track.sink.set_volume(vol);
-            }
-            if self.is_playing {
-                for track in self.stems.values_mut() {
-                    if self.solo_stems.contains(&track.id) {
-                        track.sink.play();
-                    } else {
-                        track.sink.pause();
-                    }
-                }
-            }
-            Ok(())
+            self.solo_stems.insert(id.to_owned());
         } else {
             self.solo_stems.remove(id);
-            for (sid, track) in self.stems.iter_mut() {
-                track.is_soloed = self.solo_stems.contains(sid);
-            }
-            if self.solo_stems.is_empty() {
-                for (sid, track) in self.stems.iter_mut() {
-                    if let Some(&(saved_vol, saved_muted)) = self.pre_solo_states.get(sid) {
-                        track.base_volume = saved_vol;
-                        track.is_muted = saved_muted;
-                        track.sink.set_volume(if saved_muted { 0.0 } else { saved_vol });
-                    }
-                }
-                if self.is_playing {
-                    for track in self.stems.values_mut() {
-                        if !track.is_muted {
-                            track.sink.play();
-                        }
-                    }
-                }
-            } else {
-                for (sid, track) in self.stems.iter_mut() {
-                    let vol = if self.solo_stems.contains(sid) {
-                        track.base_volume
-                    } else {
-                        0.0
-                    };
-                    track.sink.set_volume(vol);
-                }
-                if self.is_playing {
-                    for track in self.stems.values_mut() {
-                        if self.solo_stems.contains(&track.id) && !track.is_muted {
-                            track.sink.play();
-                        } else {
-                            track.sink.pause();
-                        }
-                    }
-                }
-            }
-            Ok(())
         }
+        self.update_gains();
+        Ok(())
     }
 
     fn get_stem_count(&self) -> usize {
@@ -253,20 +193,20 @@ impl AudioManager {
 
 fn load_stem_track(
     stream_handle: &rodio::OutputStreamHandle,
-    id: &str,
+    _id: &str,
     path: &str,
 ) -> Result<StemTrack, String> {
     let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
     let reader = BufReader::new(file);
     let source = Decoder::new(reader).map_err(|e| format!("Failed to decode audio: {}", e))?;
 
-    let sink = Sink::try_new(stream_handle)
-        .map_err(|e| format!("Failed to create sink: {}", e))?;
+    let sink = Sink::try_new(stream_handle).map_err(|e| format!("Failed to create sink: {}", e))?;
+    sink.pause();
     sink.append(source);
 
     Ok(StemTrack {
         sink,
-        id: id.to_string(),
+        path: path.to_string(),
         base_volume: 1.0,
         is_muted: false,
         is_soloed: false,
@@ -290,6 +230,12 @@ impl AudioContext {
 
             while let Ok(cmd) = rx.recv() {
                 match cmd {
+                    AudioCommand::GetPlaybackState { response } => {
+                        if manager.stems.values().all(|track| track.sink.empty()) {
+                            manager.is_playing = false;
+                        }
+                        let _ = response.send(Ok(manager.is_playing));
+                    }
                     AudioCommand::LoadStems {
                         stem_paths,
                         response,
@@ -297,7 +243,9 @@ impl AudioContext {
                         eprintln!("[Audio Thread] LoadStems → {} stems", stem_paths.len());
                         let result = manager.load_stems(stem_paths);
                         match &result {
-                            Ok(ids) => eprintln!("[Audio Thread] LoadStems → OK ({} stems)", ids.len()),
+                            Ok(ids) => {
+                                eprintln!("[Audio Thread] LoadStems → OK ({} stems)", ids.len())
+                            }
                             Err(e) => eprintln!("[Audio Thread] LoadStems → ERR: {}", e),
                         }
                         let _ = response.send(result);
@@ -337,11 +285,7 @@ impl AudioContext {
                         }
                         let _ = response.send(result);
                     }
-                    AudioCommand::SetSolo {
-                        id,
-                        solo,
-                        response,
-                    } => {
+                    AudioCommand::SetSolo { id, solo, response } => {
                         eprintln!("[Audio Thread] SetSolo → id={}, solo={}", id, solo);
                         let result = manager.set_solo(&id, solo);
                         match &result {
@@ -365,5 +309,29 @@ impl AudioContext {
         AudioContext {
             tx: std::sync::Mutex::new(Some(tx)),
         }
+    }
+}
+
+fn effective_volume(volume: f32, muted: bool, any_solo: bool, soloed: bool) -> f32 {
+    if muted || (any_solo && !soloed) {
+        0.0
+    } else {
+        volume
+    }
+}
+
+impl Default for AudioContext {
+    fn default() -> Self { Self::new() }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn mute_and_solo_preserve_user_volume() {
+        assert_eq!(super::effective_volume(0.4, false, false, false), 0.4);
+        assert_eq!(super::effective_volume(0.4, true, false, false), 0.0);
+        assert_eq!(super::effective_volume(0.4, false, true, false), 0.0);
+        assert_eq!(super::effective_volume(0.4, false, true, true), 0.4);
+        assert_eq!(super::effective_volume(0.4, true, true, true), 0.0);
     }
 }

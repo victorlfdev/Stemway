@@ -1,6 +1,5 @@
 use tauri::Emitter as _;
 
-
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct ProcessResult {
     pub paths: Vec<String>,
@@ -28,9 +27,11 @@ pub struct FileSizeResult {
 
 #[tauri::command]
 pub fn get_file_size(path: String) -> Result<FileSizeResult, String> {
-    let metadata = std::fs::metadata(&path)
-        .map_err(|e| format!("Failed to get file metadata: {}", e))?;
-    Ok(FileSizeResult { size: metadata.len() })
+    let metadata =
+        std::fs::metadata(&path).map_err(|e| format!("Failed to get file metadata: {}", e))?;
+    Ok(FileSizeResult {
+        size: metadata.len(),
+    })
 }
 
 #[derive(serde::Serialize)]
@@ -41,7 +42,10 @@ pub struct OpenFolderResult {
 
 #[tauri::command]
 pub async fn probe_file(path: String) -> Result<FileProbeResult, String> {
-    let (duration_secs, sample_rate, channels, file_size_bytes) = crate::info::probe_wav(&path)?;
+    let (duration_secs, sample_rate, channels, file_size_bytes) =
+        tauri::async_runtime::spawn_blocking(move || crate::info::probe_wav(&path))
+            .await
+            .map_err(|e| e.to_string())??;
     Ok(FileProbeResult {
         duration_secs,
         sample_rate,
@@ -54,7 +58,8 @@ pub async fn probe_file(path: String) -> Result<FileProbeResult, String> {
 pub async fn open_output_folder(path: String) -> Result<OpenFolderResult, String> {
     let path_ref = std::path::Path::new(&path);
     let folder_to_open = if path_ref.is_file() {
-        path_ref.parent()
+        path_ref
+            .parent()
             .ok_or("Cannot determine parent folder")?
             .to_str()
             .ok_or("Invalid path")?
@@ -87,188 +92,117 @@ pub async fn open_output_folder(path: String) -> Result<OpenFolderResult, String
     }
 }
 
+static PROCESSING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[tauri::command]
 pub async fn process_file(
     path: String,
     model: String,
     app: tauri::AppHandle,
 ) -> Result<ProcessResult, String> {
-    let temp_dir = directories::ProjectDirs::from("", "", "stemway")
-        .map(|d| d.cache_dir().to_path_buf())
-        .unwrap_or_else(|| std::env::temp_dir());
-    std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
-
-    let output_base = temp_dir.join("stem-output");
-    std::fs::create_dir_all(&output_base).map_err(|e| format!("Failed to create output dir: {}", e))?;
-
-    let input_path = std::path::Path::new(&path);
-    let track_name = input_path
+    let _guard = PROCESSING
+        .try_lock()
+        .map_err(|_| "Another separation is already running")?;
+    if !["demucs", "bs-roformer", "bs-roformer-cpp"].contains(&model.as_str()) {
+        return Err(format!("Unknown model: {model}"));
+    }
+    let input = std::path::PathBuf::from(&path);
+    if !input.is_file() {
+        return Err(format!("Audio file not found: {path}"));
+    }
+    let track_name = input
         .file_stem()
         .and_then(|s| s.to_str())
-        .unwrap_or("unknown")
-        .to_string();
-
-    match model.as_str() {
+        .ok_or("Invalid filename")?
+        .to_owned();
+    let cache = directories::ProjectDirs::from("", "", "stemway")
+        .map(|d| d.cache_dir().to_path_buf())
+        .unwrap_or_else(std::env::temp_dir);
+    // Each run has its own directory, so a failed run cannot return old stems.
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    let output = cache
+        .join("stem-output")
+        .join(&model)
+        .join(format!("{track_name}-{timestamp}"));
+    std::fs::create_dir_all(&output).map_err(|e| e.to_string())?;
+    let backend;
+    let pairs = match model.as_str() {
         "bs-roformer" => {
-            crate::bs_roformer_cli::ensure_bs_roformer_installed()?;
-
-            let bs_output_dir = output_base.join("bs-roformer-infer").join(&track_name);
-            eprintln!("[commands] Creating bs-roformer output dir: {}", bs_output_dir.display());
-            std::fs::create_dir_all(&bs_output_dir)
-                .map_err(|e| format!("Failed to create bs-roformer output dir: {}", e))?;
-
-            let temp_input_dir = bs_output_dir.join("input");
-            eprintln!("[commands] Creating temp input dir: {}", temp_input_dir.display());
-            std::fs::create_dir_all(&temp_input_dir)
-                .map_err(|e| format!("Failed to create temp input dir: {}", e))?;
-
-            let temp_input_file = temp_input_dir.join(&track_name).with_extension("wav");
-            eprintln!("[commands] Copying input file to: {}", temp_input_file.display());
-            std::fs::copy(input_path, &temp_input_file)
-                .map_err(|e| format!("Failed to copy input file to temp dir: {}", e))?;
-            eprintln!("[commands] Temp input file size: {} bytes", temp_input_file.metadata().ok().map(|m| m.len()).unwrap_or(0));
-
-            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<crate::bs_roformer_cli::BsRoformerProgress>();
-
-            {
-                let app_forward = app.clone();
-                tokio::spawn(async move {
-                    let mut rx = rx;
-                    while let Some(progress) = rx.recv().await {
-                        let _ = app_forward.emit("bs_roformer_progress", &progress);
-                    }
-                });
-            }
-
-            let stem_pairs = crate::bs_roformer_cli::run_bs_roformer_cli_with_progress(
-                &temp_input_dir,
-                &bs_output_dir,
-                move |prog: crate::bs_roformer_cli::BsRoformerProgress| {
-                    let _ = tx.send(prog);
+            let input_dir = output.join("input");
+            std::fs::create_dir_all(&input_dir).map_err(|e| e.to_string())?;
+            let converted = input_dir.join("track.wav");
+            let source = input.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                crate::info::convert_to_wav(&source, &converted)
+            })
+            .await
+            .map_err(|e| e.to_string())??;
+            backend = Some("CPU".to_owned());
+            crate::bs_roformer_cli::run_bs_roformer_cli_with_progress(
+                &input_dir,
+                &output,
+                move |progress| {
+                    let _ = app.emit("bs_roformer_progress", progress);
                 },
             )
-            .await?;
-
-            let paths: Vec<String> = stem_pairs.iter().map(|(_, p)| p.clone()).collect();
-
-            let (duration_secs, sample_rate, channels, file_size_bytes) =
-                if let Some(first_stem) = stem_pairs.first() {
-                    crate::info::probe_wav(&first_stem.1)?
-                } else {
-                    (0.0, 44100, 2, 0)
-                };
-
-            Ok(ProcessResult {
-                paths,
-                name: track_name,
-                duration_secs,
-                sample_rate,
-                channels,
-                file_size_bytes,
-                model: "bs-roformer".to_string(),
-                backend: None,
-            })
+            .await?
         }
         "bs-roformer-cpp" => {
-            let cpp_output_dir = output_base.join("bs-roformer-cpp").join(&track_name);
-            std::fs::create_dir_all(&cpp_output_dir)
-                .map_err(|e| format!("Failed to create bs-roformer-cpp output dir: {}", e))?;
-
-            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<crate::bs_roformer_cpp_cli::BsRoformerCppProgress>();
-
-            {
-                let app_forward = app.clone();
-                tokio::spawn(async move {
-                    let mut rx = rx;
-                    while let Some(progress) = rx.recv().await {
-                        let _ = app_forward.emit("bs_roformer_cpp_progress", &progress);
-                    }
-                });
-            }
-
-            let backend = crate::bs_roformer_cpp_cli::detect_gpu_backend();
-            let backend_name = crate::bs_roformer_cpp_cli::get_backend_name(&backend);
-
-            let stem_pairs = crate::bs_roformer_cpp_cli::run_bs_roformer_cpp_with_progress(
-                input_path,
-                &cpp_output_dir,
-                move |prog: crate::bs_roformer_cpp_cli::BsRoformerCppProgress| {
-                    let _ = tx.send(prog);
+            backend = Some(
+                crate::bs_roformer_cpp_cli::get_backend_name(
+                    &crate::bs_roformer_cpp_cli::detect_gpu_backend(),
+                )
+                .to_owned(),
+            );
+            crate::bs_roformer_cpp_cli::run_bs_roformer_cpp_with_progress(
+                &input,
+                &output,
+                move |progress| {
+                    let _ = app.emit("bs_roformer_cpp_progress", progress);
                 },
             )
-            .await?;
-
-            let paths: Vec<String> = stem_pairs.iter().map(|(_, p)| p.clone()).collect();
-
-            let (duration_secs, sample_rate, channels, file_size_bytes) =
-                if let Some(first_stem) = stem_pairs.first() {
-                    crate::info::probe_wav(&first_stem.1)?
-                } else {
-                    (0.0, 44100, 2, 0)
-                };
-
-            Ok(ProcessResult {
-                paths,
-                name: track_name,
-                duration_secs,
-                sample_rate,
-                channels,
-                file_size_bytes,
-                model: "bs-roformer-cpp".to_string(),
-                backend: Some(backend_name.to_string()),
-            })
+            .await?
         }
         _ => {
-            crate::demucs_cli::ensure_demucs_installed()?;
-
-            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<crate::demucs_cli::DemucsProgress>();
-
-            {
-                let app_forward = app.clone();
-                tokio::spawn(async move {
-                    let mut rx = rx;
-                    while let Some(progress) = rx.recv().await {
-                        let _ = app_forward.emit("demucs_progress", &progress);
-                    }
-                });
-            }
-
-            let _result = crate::demucs_cli::run_demucs_cli_with_progress(
-                input_path,
-                &output_base,
-                move |prog: crate::demucs_cli::DemucsProgress| {
-                    let _ = tx.send(prog);
-                },
-            )
-            .await?;
-
-            let stem_pairs = crate::bs_roformer_output::parse_output(
-                output_base.join("htdemucs_6s").join(&track_name)
-                    .to_str().ok_or("Invalid demucs output dir")?,
-                "demucs",
-            )?;
-
-            let paths: Vec<String> = stem_pairs.iter().map(|(_, p)| p.clone()).collect();
-
-            let (duration_secs, sample_rate, channels, file_size_bytes) =
-                if let Some(first_stem) = stem_pairs.first() {
-                    crate::info::probe_wav(&first_stem.1)?
-                } else {
-                    (0.0, 44100, 2, 0)
-                };
-
-            Ok(ProcessResult {
-                paths,
-                name: track_name,
-                duration_secs,
-                sample_rate,
-                channels,
-                file_size_bytes,
-                model: "demucs".to_string(),
-                backend: None,
+            backend = Some("CPU".to_owned());
+            crate::demucs_cli::run_demucs_cli_with_progress(&input, &output, move |progress| {
+                let _ = app.emit("demucs_progress", progress);
             })
+            .await?;
+            crate::demucs_output::parse_demucs_output(
+                output.to_str().ok_or("Invalid output path")?,
+                &track_name,
+            )?
         }
+    };
+    if pairs.len() != 6
+        || pairs
+            .iter()
+            .any(|(_, p)| !std::path::Path::new(p).is_file())
+    {
+        return Err(format!(
+            "Separation did not produce all 6 stems (found {})",
+            pairs.len()
+        ));
     }
+    let first = pairs[0].1.clone();
+    let (duration_secs, sample_rate, channels, file_size_bytes) =
+        tauri::async_runtime::spawn_blocking(move || crate::info::probe_wav(&first))
+            .await
+            .map_err(|e| e.to_string())??;
+    Ok(ProcessResult {
+        paths: pairs.into_iter().map(|(_, p)| p).collect(),
+        name: track_name,
+        duration_secs,
+        sample_rate,
+        channels,
+        file_size_bytes,
+        model,
+        backend,
+    })
 }
 
 #[derive(serde::Serialize)]
@@ -285,6 +219,20 @@ pub struct AudioLoadResult {
 }
 
 #[tauri::command]
+pub fn audio_get_playback_state(
+    audio: tauri::State<'_, crate::audio::AudioContext>,
+) -> Result<bool, String> {
+    let tx = audio.tx.lock().map_err(|e| e.to_string())?;
+    let sender = tx.as_ref().ok_or("Audio context not initialized")?;
+    let (response, rx) = std::sync::mpsc::sync_channel(1);
+    sender
+        .send(crate::audio::AudioCommand::GetPlaybackState { response })
+        .map_err(|e| e.to_string())?;
+    drop(tx);
+    rx.recv().map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub fn audio_load_stems(
     audio: tauri::State<'_, crate::audio::AudioContext>,
     stem_paths: Vec<(String, String)>,
@@ -294,19 +242,28 @@ pub fn audio_load_stems(
     for (name, path) in &stem_paths {
         eprintln!("  [Audio IPC]   {} → {}", name, path);
     }
-    let tx = audio.tx.lock().map_err(|e| format!("Failed to lock tx: {}", e))?;
-    let sender = tx.as_ref()
-        .ok_or("Audio context not initialized")?;
+    let tx = audio
+        .tx
+        .lock()
+        .map_err(|e| format!("Failed to lock tx: {}", e))?;
+    let sender = tx.as_ref().ok_or("Audio context not initialized")?;
 
     let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
     let cmd = crate::audio::AudioCommand::LoadStems {
         stem_paths,
         response: response_tx,
     };
-    sender.send(cmd).map_err(|e| format!("Failed to send load command: {}", e))?;
+    sender
+        .send(cmd)
+        .map_err(|e| format!("Failed to send load command: {}", e))?;
     drop(tx);
-    let loaded_ids = response_rx.recv().map_err(|e| format!("Load failed: {}", e))??;
-    eprintln!("[Audio IPC] load_stems → OK ({} stems confirmed)", loaded_ids.len());
+    let loaded_ids = response_rx
+        .recv()
+        .map_err(|e| format!("Load failed: {}", e))??;
+    eprintln!(
+        "[Audio IPC] load_stems → OK ({} stems confirmed)",
+        loaded_ids.len()
+    );
 
     Ok(AudioLoadResult {
         stem_count: loaded_ids.len(),
@@ -318,17 +275,23 @@ pub fn audio_toggle_playback(
     audio: tauri::State<'_, crate::audio::AudioContext>,
 ) -> Result<(), String> {
     eprintln!("[Audio IPC] toggle_playback");
-    let tx = audio.tx.lock().map_err(|e| format!("Failed to lock tx: {}", e))?;
-    let sender = tx.as_ref()
-        .ok_or("Audio context not initialized")?;
+    let tx = audio
+        .tx
+        .lock()
+        .map_err(|e| format!("Failed to lock tx: {}", e))?;
+    let sender = tx.as_ref().ok_or("Audio context not initialized")?;
 
     let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
     let cmd = crate::audio::AudioCommand::TogglePlayback {
         response: response_tx,
     };
-    sender.send(cmd).map_err(|e| format!("Failed to send toggle command: {}", e))?;
+    sender
+        .send(cmd)
+        .map_err(|e| format!("Failed to send toggle command: {}", e))?;
     drop(tx);
-    response_rx.recv().map_err(|e| format!("Toggle failed: {}", e))??;
+    response_rx
+        .recv()
+        .map_err(|e| format!("Toggle failed: {}", e))??;
     eprintln!("[Audio IPC] toggle_playback → OK");
     Ok(())
 }
@@ -340,9 +303,11 @@ pub fn audio_set_volume(
     volume: f32,
 ) -> Result<(), String> {
     eprintln!("[Audio IPC] set_volume → id={}, volume={:.2}", id, volume);
-    let tx = audio.tx.lock().map_err(|e| format!("Failed to lock tx: {}", e))?;
-    let sender = tx.as_ref()
-        .ok_or("Audio context not initialized")?;
+    let tx = audio
+        .tx
+        .lock()
+        .map_err(|e| format!("Failed to lock tx: {}", e))?;
+    let sender = tx.as_ref().ok_or("Audio context not initialized")?;
 
     let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
     let cmd = crate::audio::AudioCommand::SetVolume {
@@ -350,9 +315,13 @@ pub fn audio_set_volume(
         volume,
         response: response_tx,
     };
-    sender.send(cmd).map_err(|e| format!("Failed to send volume command: {}", e))?;
+    sender
+        .send(cmd)
+        .map_err(|e| format!("Failed to send volume command: {}", e))?;
     drop(tx);
-    response_rx.recv().map_err(|e| format!("Volume command failed: {}", e))??;
+    response_rx
+        .recv()
+        .map_err(|e| format!("Volume command failed: {}", e))??;
     eprintln!("[Audio IPC] set_volume → OK");
     Ok(())
 }
@@ -364,9 +333,11 @@ pub fn audio_set_mute(
     muted: bool,
 ) -> Result<(), String> {
     eprintln!("[Audio IPC] set_mute → id={}, muted={}", id, muted);
-    let tx = audio.tx.lock().map_err(|e| format!("Failed to lock tx: {}", e))?;
-    let sender = tx.as_ref()
-        .ok_or("Audio context not initialized")?;
+    let tx = audio
+        .tx
+        .lock()
+        .map_err(|e| format!("Failed to lock tx: {}", e))?;
+    let sender = tx.as_ref().ok_or("Audio context not initialized")?;
 
     let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
     let cmd = crate::audio::AudioCommand::SetMute {
@@ -374,9 +345,13 @@ pub fn audio_set_mute(
         muted,
         response: response_tx,
     };
-    sender.send(cmd).map_err(|e| format!("Failed to send mute command: {}", e))?;
+    sender
+        .send(cmd)
+        .map_err(|e| format!("Failed to send mute command: {}", e))?;
     drop(tx);
-    response_rx.recv().map_err(|e| format!("Mute command failed: {}", e))??;
+    response_rx
+        .recv()
+        .map_err(|e| format!("Mute command failed: {}", e))??;
     eprintln!("[Audio IPC] set_mute → OK");
     Ok(())
 }
@@ -388,9 +363,11 @@ pub fn audio_set_solo(
     solo: bool,
 ) -> Result<(), String> {
     eprintln!("[Audio IPC] set_solo → id={}, solo={}", id, solo);
-    let tx = audio.tx.lock().map_err(|e| format!("Failed to lock tx: {}", e))?;
-    let sender = tx.as_ref()
-        .ok_or("Audio context not initialized")?;
+    let tx = audio
+        .tx
+        .lock()
+        .map_err(|e| format!("Failed to lock tx: {}", e))?;
+    let sender = tx.as_ref().ok_or("Audio context not initialized")?;
 
     let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
     let cmd = crate::audio::AudioCommand::SetSolo {
@@ -398,9 +375,13 @@ pub fn audio_set_solo(
         solo,
         response: response_tx,
     };
-    sender.send(cmd).map_err(|e| format!("Failed to send solo command: {}", e))?;
+    sender
+        .send(cmd)
+        .map_err(|e| format!("Failed to send solo command: {}", e))?;
     drop(tx);
-    response_rx.recv().map_err(|e| format!("Solo command failed: {}", e))??;
+    response_rx
+        .recv()
+        .map_err(|e| format!("Solo command failed: {}", e))??;
     eprintln!("[Audio IPC] set_solo → OK");
     Ok(())
 }
@@ -409,34 +390,46 @@ pub fn audio_set_solo(
 pub fn audio_get_stem_count(
     audio: tauri::State<'_, crate::audio::AudioContext>,
 ) -> Result<usize, String> {
-    let tx = audio.tx.lock().map_err(|e| format!("Failed to lock tx: {}", e))?;
-    let sender = tx.as_ref()
-        .ok_or("Audio context not initialized")?;
+    let tx = audio
+        .tx
+        .lock()
+        .map_err(|e| format!("Failed to lock tx: {}", e))?;
+    let sender = tx.as_ref().ok_or("Audio context not initialized")?;
 
     let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
     let cmd = crate::audio::AudioCommand::GetStemCount {
         response: response_tx,
     };
-    sender.send(cmd).map_err(|e| format!("Failed to send count command: {}", e))?;
+    sender
+        .send(cmd)
+        .map_err(|e| format!("Failed to send count command: {}", e))?;
     drop(tx);
-    Ok(response_rx.recv().map_err(|e| format!("Count command failed: {}", e))?.unwrap())
+    response_rx
+        .recv()
+        .map_err(|e| format!("Count command failed: {}", e))?
 }
 
 #[tauri::command]
 pub fn audio_get_stems(
     audio: tauri::State<'_, crate::audio::AudioContext>,
 ) -> Result<Vec<StemInfo>, String> {
-    let tx = audio.tx.lock().map_err(|e| format!("Failed to lock tx: {}", e))?;
-    let sender = tx.as_ref()
-        .ok_or("Audio context not initialized")?;
+    let tx = audio
+        .tx
+        .lock()
+        .map_err(|e| format!("Failed to lock tx: {}", e))?;
+    let sender = tx.as_ref().ok_or("Audio context not initialized")?;
 
     let (response_tx, response_rx) = std::sync::mpsc::sync_channel(1);
     let cmd = crate::audio::AudioCommand::GetStems {
         response: response_tx,
     };
-    sender.send(cmd).map_err(|e| format!("Failed to send stems command: {}", e))?;
+    sender
+        .send(cmd)
+        .map_err(|e| format!("Failed to send stems command: {}", e))?;
     drop(tx);
-    let stems = response_rx.recv().map_err(|e| format!("Stems command failed: {}", e))??;
+    let stems = response_rx
+        .recv()
+        .map_err(|e| format!("Stems command failed: {}", e))??;
     Ok(stems
         .into_iter()
         .map(|(id, muted, soloed, volume)| StemInfo {

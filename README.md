@@ -2,10 +2,40 @@
 
 A local-first, open-source desktop application that separates music audio tracks into individual stems using AI models — all processing happens on your machine.
 
+## Run on Windows (validated setup)
+
+After a local build, open `src-tauri/target/release/stemway.exe` directly, or install
+`src-tauri/target/release/bundle/nsis/Stemway_0.3.0_x64-setup.exe`. The release app
+includes the frontend and does not need Vite or a terminal running.
+
+The default **6-Track Premium** model runs on the Radeon RX 9060 XT through
+Vulkan. It downloads the official Windows inference engine and GGUF model on
+first use. A compatible graphics driver is sufficient; the Vulkan SDK is not
+required to run the prebuilt engine.
+
+To develop locally, install current stable Rust, Visual Studio C++ tools, Node.js
+18/20/22+ and FFmpeg (including ffprobe), then run `npm ci` and `npm run tauri dev`.
+Restart your terminal after installing Rust so Cargo is on PATH. Visual Studio
+Insiders is supported by the current Rust toolchain.
+
+The Python engines use a private environment under
+`%LOCALAPPDATA%/stemway/data/python-env`; packages are installed there on first
+use, without modifying global Python packages. For an explicit setup with Python
+3.12, run in PowerShell:
+
+```powershell
+python -m venv "$env:LOCALAPPDATA/stemway/data/python-env"
+& "$env:LOCALAPPDATA/stemway/data/python-env/Scripts/python.exe" -m pip install -r requirements-audio.txt
+```
+
+For development, a project `.venv` or the active `VIRTUAL_ENV` is also detected.
+Python subprocesses run in UTF-8 on Windows. Torch and torchaudio are kept at the
+tested matching version 2.5.1.
+
 ## Features
 
 - **Multiple AI models:** HTDemucs, BS-RoFormer, BS-RoFormer.cpp with different quality/speed trade-offs
-- **4 or 6 stems:** Drums, Bass, Vocals, Other (and Guitar, Piano with BS-RoFormer.cpp)
+- **6 stems:** Drums, Bass, Vocals, Other, Guitar and Piano
 - **Local processing:** No data leaves your computer, no subscriptions required
 - **GPU acceleration:** Vulkan and CUDA support via BS-RoFormer.cpp
 - **Cross-platform:** Linux, Windows, macOS
@@ -16,7 +46,7 @@ A local-first, open-source desktop application that separates music audio tracks
 ### Prerequisites
 
 **For Linux:**
-- Rust 1.77.2 or later — `rustup`
+- Current stable Rust (tested with 1.99.1) — `rustup`
 - System dependencies:
   ```bash
   # Ubuntu/Debian
@@ -30,11 +60,11 @@ A local-first, open-source desktop application that separates music audio tracks
   ```
 
 **For macOS:**
-- Rust 1.77.2 or later — `rustup`
+- Current stable Rust (tested with 1.99.1) — `rustup`
 - Node.js 18+ — [nvm](https://github.com/nvm-sh/nvm) or [brew](https://brew.sh)
 
 **For Windows:**
-- Rust 1.77.2 or later — `winget install Rustlang.Rustup`
+- Current stable Rust (tested with 1.99.1) — `winget install Rustlang.Rustup`
 - Visual Studio C++ Build Tools — [Download](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
   - During installation, select the **"C++ build tools"** workload
   - Ensure **"Windows 10 SDK"** and **"C++ CMake tools"** are included
@@ -42,13 +72,13 @@ A local-first, open-source desktop application that separates music audio tracks
 - FFmpeg + ffprobe — `winget install ffmpeg` or `scoop install ffmpeg`
 
 **For all platforms:**
-- Python 3.8+ — required for HTDemucs and BS-RoFormer (Windows: use `pip install --user`, not `pipx`)
+- Python 3.10–3.12 — required for HTDemucs and BS-RoFormer; installed into a private environment
 
 **For model support:**
 | Model | Dependency | Required? |
 |-------|-----------|-----------|
-| HTDemucs | `pipx install demucs` (Python) | Optional — installed automatically on first use |
-| BS-RoFormer | `pipx install bs-roformer-infer` (Python) | Optional — installed automatically on first use |
+| HTDemucs | `demucs==4.0.1` (private Python environment) | Optional — installed automatically on first use |
+| BS-RoFormer | `bs-roformer-infer==0.1.5` (private Python environment) | Optional — installed automatically on first use |
 | BS-RoFormer.cpp | None (self-contained binary) | Optional — downloaded automatically on first use |
 
 ### Installation
@@ -84,17 +114,17 @@ Binaries are output to `src-tauri/target/release/bundle`:
 
 ## Models Compared
 
-### HTDemucs (4-Track Standard)
+### HTDemucs (6-Track Standard)
 - **Quality:** Good
 - **Speed:** Fast CPU processing (~3-5 min for a 3-minute song)
-- **Stems:** Vocals, Drums, Bass, Other
+- **Stems:** Vocals, Drums, Bass, Other, Guitar, Piano
 - **GPU:** No
 - **Best for:** Quick separation, reliable results
 
-### BS-RoFormer (4-Track Essential)
+### BS-RoFormer (6-Track Essential)
 - **Quality:** Good
 - **Speed:** Slower, CPU only (~10-15 min)
-- **Stems:** Vocals, Drums, Bass, Other
+- **Stems:** Vocals, Drums, Bass, Other, Guitar, Piano
 - **GPU:** No
 - **Best for:** Alternative model comparison
 
@@ -117,19 +147,19 @@ Binaries are output to `src-tauri/target/release/bundle`:
 ## Output Format
 
 All stems are saved as:
-- **Format:** 16-bit PCM WAV
+- **Format:** WAV (16-bit PCM for HTDemucs; floating-point WAV for RoFormer)
 - **Channels:** Stereo
-- **Sample rate:** Matches input (HTDemucs/BS-RoFormer) or 44100 Hz (BS-RoFormer.cpp)
+- **Sample rate:** 44100 Hz; input files are converted when needed
 
 Processed files are stored in:
 - **Linux:** `~/.local/share/stemway/stem-output/`
-- **Windows:** `%APPDATA%\stemway\stem-output\`
+- **Windows:** `%LOCALAPPDATA%\stemway\cache\stem-output\`
 - **macOS:** `~/Library/Caches/com.stemway.app/stem-output/`
 
 ## Technology Stack
 
 - **Desktop shell:** Tauri 2 (Rust)
-- **Frontend:** React 18 + Vite 5 + Tailwind CSS 3
+- **Frontend:** React 18 + Vite 6 + Tailwind CSS 3
 - **Audio separation:** HTDemucs, BS-RoFormer, BS-RoFormer.cpp (Python/C++ CLI tools)
 - **External tools:** FFmpeg (audio format conversion), ffprobe (metadata extraction)
 - **Model files:** ONNX / GGUF format, cached locally on first use
@@ -161,12 +191,9 @@ stemway/
 ## Troubleshooting
 
 ### "demucs not found" / "bs-roformer-infer not found"
-These are installed automatically on first use via pipx or pip. If installation fails:
-```bash
-pipx install demucs
-pipx install bs-roformer-infer
-```
-On Windows, use `pip install --user demucs` instead of pipx.
+These are installed automatically into Stemway's private Python environment.
+If setup fails, run the PowerShell commands in **Run on Windows** above. Avoid
+installing arbitrary newer Torch/torchaudio versions; use `requirements-audio.txt`.
 
 ### BS-RoFormer.cpp won't launch (missing DLLs on Windows)
 If you see errors like `api-ms-win-core...` or `Vulkan.dll not found`:
@@ -219,3 +246,21 @@ This project relies on the following third-party tools and models:
 - **[BS-RoFormer](https://github.com/lucidrains/BS-RoFormer)** — *BS-RoFormer: Better Symmetric Spectrogram Decomposition* by Phil Wang (lucidrains). Licensed under MIT.
 - **[BS-RoFormer.cpp](https://github.com/chenmozhijin/BSRoformer.cpp)** — *BS-RoFormer C++ inference port* by chenmozhijin. Licensed under MIT.
 - **[Tauri](https://tauri.app/)** — Cross-platform desktop framework. Licensed under MIT / Apache-2.0.
+
+## Validation
+
+FFmpeg must be on PATH for backend audio tests.
+
+```powershell
+npm run build
+npm audit
+cargo test --manifest-path src-tauri/Cargo.toml --locked
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
+# Real pipeline test; downloads the selected model on first use:
+cargo run --manifest-path src-tauri/Cargo.toml --example smoke -- "C:/path/to/audio.wav" bs-roformer-cpp --audio
+```
+
+The smoke example accepts `demucs` or `bs-roformer` as well. It validates all six
+output files, duration, stereo channels and sample rate. `--audio` also checks
+loading, playback, volume, mute, solo and unloading against the real audio device.
+Every separation receives a new output directory to avoid returning stale stems.

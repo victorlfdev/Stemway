@@ -80,6 +80,6 @@ pub fn parse_output(output_dir: &str, _model: &str) -> Result<Vec<(String, Strin
         }
     }
 
-    stems.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    stems.sort_by_key(|a| a.0.to_lowercase());
     Ok(stems)
 }

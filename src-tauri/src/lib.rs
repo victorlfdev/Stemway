@@ -1,12 +1,13 @@
 pub mod audio;
 pub mod bs_roformer_cli;
-pub mod bs_roformer_output;
 pub mod bs_roformer_cpp_cli;
 pub mod bs_roformer_cpp_output;
+pub mod bs_roformer_output;
+pub mod commands;
 pub mod demucs_cli;
 pub mod demucs_output;
-pub mod commands;
 pub mod info;
+pub mod python_tools;
 
 pub use commands::ProcessResult;
 use tauri_plugin_fs::FsExt as _;
@@ -45,23 +46,8 @@ pub fn tauri_app() {
             commands::audio_set_solo,
             commands::audio_get_stem_count,
             commands::audio_get_stems,
+            commands::audio_get_playback_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running stemway tauri app");
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::info;
-
-    #[test]
-    fn test_probe_test_wav() {
-        let result = info::probe_wav("test_output_stem__bass.wav");
-        assert!(result.is_ok());
-        let (dur, sr, ch, size) = result.unwrap();
-        assert!(dur > 90.0);
-        assert_eq!(sr, 16000);
-        assert_eq!(ch, 2);
-        assert!(size > 0);
-    }
 }

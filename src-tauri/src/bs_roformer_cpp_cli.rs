@@ -1,10 +1,10 @@
 use std::fs;
-use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use tokio::process::Command as TokioCommand;
 use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command as TokioCommand;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BsRoformerBackend {
@@ -24,14 +24,17 @@ pub struct BsRoformerCppProgress {
     pub stem_index: Option<u32>,
 }
 
+#[cfg(windows)]
+const BSROFORMER_BINARY_NAME: &str = "bs_roformer-cli.exe";
+#[cfg(not(windows))]
 const BSROFORMER_BINARY_NAME: &str = "bs_roformer-cli";
 const BSROFORMER_MODEL_URL: &str = "https://huggingface.co/victorlfdev/bs-roformer-multi-q8/resolve/main/bs-roformer-multi-q8.gguf";
 const BSROFORMER_BINARY_URL_LINUX_VULKAN: &str = "https://github.com/victorlfdev/Fork-BSRoformer.cpp/releases/download/v0.1.0/BSRoformer-linux-vulkan.tar.xz";
 const BSROFORMER_BINARY_URL_LINUX_CPU: &str = "https://github.com/chenmozhijin/BSRoformer.cpp/releases/download/v0.1.0/BSRoformer-linux-x64-cpu.tar.xz";
 const BSROFORMER_BINARY_URL_LINUX_CUDA11: &str = "https://github.com/chenmozhijin/BSRoformer.cpp/releases/download/v0.1.0/BSRoformer-linux-cuda-11.8.0.tar.xz";
 const BSROFORMER_BINARY_URL_LINUX_CUDA12: &str = "https://github.com/chenmozhijin/BSRoformer.cpp/releases/download/v0.1.0/BSRoformer-linux-cuda-12.9.1.tar.xz";
-const BSROFORMER_BINARY_URL_WINDOWS_VULKAN: &str = "https://github.com/victorlfdev/Fork-BSRoformer.cpp/releases/download/v0.1.0/BSRoformer-windows-vulkan.zip";
-const BSROFORMER_BINARY_URL_WINDOWS_CPU: &str = "https://github.com/chenmozhijin/BSRoformer.cpp/releases/download/v0.1.0/BSRoformer-windows-cpu.zip";
+const BSROFORMER_BINARY_URL_WINDOWS_VULKAN: &str = "https://github.com/chenmozhijin/BSRoformer.cpp/releases/download/v0.1.0/BSRoformer-windows-vulkan.zip";
+const BSROFORMER_BINARY_URL_WINDOWS_CPU: &str = "https://github.com/chenmozhijin/BSRoformer.cpp/releases/download/v0.1.0/BSRoformer-windows-x64-msvc.zip";
 const BSROFORMER_MODEL_NAME: &str = "bs-roformer-multi-q8.gguf";
 
 pub fn detect_gpu_backend() -> BsRoformerBackend {
@@ -48,13 +51,20 @@ pub fn detect_gpu_backend() -> BsRoformerBackend {
 
     if cfg!(target_os = "linux") {
         let output = std::process::Command::new("sh")
-            .args(["-c", "lspci 2>/dev/null | grep -i -E 'vga|3d|display' || true"])
+            .args([
+                "-c",
+                "lspci 2>/dev/null | grep -i -E 'vga|3d|display' || true",
+            ])
             .output()
             .ok()
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .unwrap_or_default();
 
-        if output.contains("NVIDIA") || output.contains("GeForce") || output.contains("RTX") || output.contains("Tesla") {
+        if output.contains("NVIDIA")
+            || output.contains("GeForce")
+            || output.contains("RTX")
+            || output.contains("Tesla")
+        {
             let cuda12 = std::process::Command::new("sh")
                 .args(["-c", "nvidia-smi 2>/dev/null | head -5 || true"])
                 .output()
@@ -67,9 +77,16 @@ pub fn detect_gpu_backend() -> BsRoformerBackend {
             return BsRoformerBackend::Cuda11;
         }
 
-        if output.contains("AMD") || output.contains("ATi") || output.contains("Radeon") || output.contains("RX ") {
+        if output.contains("AMD")
+            || output.contains("ATi")
+            || output.contains("Radeon")
+            || output.contains("RX ")
+        {
             let vulkan_lib = std::process::Command::new("sh")
-                .args(["-c", "find /usr/lib /usr/lib64 -name 'libvulkan*' 2>/dev/null | head -1 || true"])
+                .args([
+                    "-c",
+                    "find /usr/lib /usr/lib64 -name 'libvulkan*' 2>/dev/null | head -1 || true",
+                ])
                 .output()
                 .ok()
                 .and_then(|o| String::from_utf8(o.stdout).ok())
@@ -85,15 +102,26 @@ pub fn detect_gpu_backend() -> BsRoformerBackend {
     }
 
     if cfg!(target_os = "windows") {
-        let output = std::process::Command::new("wmic")
-            .args(["path", "win32_videocontroller", "get", "name"])
+        let mut probe = std::process::Command::new("powershell.exe");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            probe.creation_flags(0x08000000);
+        }
+        let output = probe
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "(Get-CimInstance Win32_VideoController).Name",
+            ])
             .output()
             .ok()
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .unwrap_or_default();
 
         if output.contains("NVIDIA") || output.contains("GeForce") || output.contains("RTX") {
-            return BsRoformerBackend::Cuda12;
+            return BsRoformerBackend::Vulkan;
         }
 
         if output.contains("AMD") || output.contains("Radeon") {
@@ -148,7 +176,7 @@ pub fn get_backend_name(backend: &BsRoformerBackend) -> &'static str {
 pub fn get_cache_dirs() -> Result<(PathBuf, PathBuf, PathBuf), String> {
     let dirs = directories::ProjectDirs::from("", "", "stemway")
         .map(|d| d.cache_dir().to_path_buf())
-        .unwrap_or_else(|| std::env::temp_dir());
+        .unwrap_or_else(std::env::temp_dir);
 
     let binary_dir = dirs.join("binaries").join("bs-roformer");
     let model_dir = dirs.join("models").join("bs-roformer");
@@ -177,7 +205,10 @@ pub async fn get_binary_path() -> Result<PathBuf, String> {
 
     let binary_url = get_binary_url(&backend);
 
-    eprintln!("Downloading BSRoformer.cpp binary (backend: {})...", get_backend_name(&backend));
+    eprintln!(
+        "Downloading BSRoformer.cpp binary (backend: {})...",
+        get_backend_name(&backend)
+    );
     download_and_extract_binary(binary_url, &binary_dir, &cache_dir, &backend).await?;
 
     if !binary_path.exists() {
@@ -186,10 +217,7 @@ pub async fn get_binary_path() -> Result<PathBuf, String> {
 
     #[cfg(unix)]
     {
-        let _ = std::fs::set_permissions(
-            &binary_path,
-            std::fs::Permissions::from_mode(0o755),
-        );
+        let _ = std::fs::set_permissions(&binary_path, std::fs::Permissions::from_mode(0o755));
     }
 
     Ok(binary_path)
@@ -207,13 +235,26 @@ async fn download_to_file(url: &str, dest: &Path) -> Result<(), String> {
         return Err(format!("Download failed (status: {})", response.status()));
     }
 
-    let bytes = response
-        .bytes()
+    use std::io::Write;
+    let temporary = dest.with_extension("download-part");
+    let mut file = std::fs::File::create(&temporary).map_err(|e| e.to_string())?;
+    let expected = response.content_length();
+    let mut response = response;
+    let mut downloaded = 0u64;
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .map_err(|e| format!("Failed to read response bytes: {}", e))?;
-
-    std::fs::write(dest, &bytes)
-        .map_err(|e| format!("Failed to write download to file: {}", e))?;
+        .map_err(|e| format!("Download interrupted: {e}"))?
+    {
+        file.write_all(&chunk).map_err(|e| e.to_string())?;
+        downloaded += chunk.len() as u64;
+    }
+    file.sync_all().map_err(|e| e.to_string())?;
+    drop(file);
+    if expected.is_some_and(|size| size != downloaded) {
+        return Err("Incomplete download; please retry".into());
+    }
+    std::fs::rename(&temporary, dest).map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -244,8 +285,8 @@ async fn extract_tar_xz_all(
     let temp_tar = dest_dir.join("temp_download.tar.xz");
     download_to_file(url, &temp_tar).await?;
 
-    let compressed = std::fs::read(&temp_tar)
-        .map_err(|e| format!("Failed to read tar.xz file: {}", e))?;
+    let compressed =
+        std::fs::read(&temp_tar).map_err(|e| format!("Failed to read tar.xz file: {}", e))?;
 
     let decoder = xz2::read::XzDecoder::new_multi_decoder(std::io::Cursor::new(&compressed));
     let mut archive = tar::Archive::new(decoder);
@@ -300,13 +341,15 @@ async fn extract_zip_all(url: &str, dest_dir: &Path) -> Result<(), String> {
     let temp_zip = dest_dir.join("temp_download.zip");
     download_to_file(url, &temp_zip).await?;
 
-    let file = std::fs::File::open(&temp_zip)
-        .map_err(|e| format!("Failed to open zip file: {}", e))?;
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|e| format!("Failed to parse zip archive: {}", e))?;
+    let file =
+        std::fs::File::open(&temp_zip).map_err(|e| format!("Failed to open zip file: {}", e))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|e| format!("Failed to parse zip archive: {}", e))?;
 
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i).map_err(|e| format!("Failed to read zip entry {}: {}", i, e))?;
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| format!("Failed to read zip entry {}: {}", i, e))?;
         let out_path = match entry.enclosed_name() {
             Some(path) => dest_dir.join(path),
             None => continue,
@@ -359,88 +402,22 @@ async fn download_model_async(dest: &Path) -> Result<(), String> {
     let temp_file = dest.with_extension(".download");
     download_to_file(BSROFORMER_MODEL_URL, &temp_file).await?;
 
-    std::fs::rename(&temp_file, dest)
-        .map_err(|e| format!("Failed to rename model file: {}", e))?;
+    std::fs::rename(&temp_file, dest).map_err(|e| format!("Failed to rename model file: {}", e))?;
 
     Ok(())
 }
 
 pub fn convert_and_resample_if_needed(input_path: &Path) -> Result<PathBuf, String> {
-    const SUPPORTED_EXTENSIONS: &[&str; 10] = &[
-        "wav", "mp3", "flac", "ogg", "oga", "opus", "wma", "aiff", "aif", "m4a",
-    ];
-
-    let file_ext = input_path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_lowercase())
-        .unwrap_or_default();
-
-    if !SUPPORTED_EXTENSIONS.contains(&file_ext.as_str()) {
-        return Err(format!(
-            "Unsupported audio format: '{}'. Supported formats: {}",
-            file_ext,
-            SUPPORTED_EXTENSIONS.join(", ")
-        ));
-    }
-
-    if file_ext == "wav" {
-        return Ok(input_path.to_path_buf());
-    }
-
-    let probe = std::process::Command::new("ffprobe")
-        .args([
-            "-v", "quiet",
-            "-show_entries", "stream=sample_rate",
-            "-of", "csv=p=0",
-            input_path.to_str().ok_or("Invalid path")?,
-        ])
-        .output()
-        .map_err(|e| format!("Failed to probe audio file (is ffprobe installed?). Error: {}", e))?;
-
-    if !probe.status.success() {
-        return Err("Failed to probe audio file. Is ffmpeg/ffprobe installed?".to_string());
-    }
-
-    let sample_rate = String::from_utf8(probe.stdout)
-        .map_err(|e| format!("Invalid ffprobe output: {}", e))?
-        .trim()
-        .parse::<u32>()
-        .unwrap_or(0);
-
-    if sample_rate == 44100 {
-        eprintln!("Input {} is already 44100 Hz, converting to WAV...", file_ext);
-    } else {
-        eprintln!(
-            "Input {} at {} Hz, converting to WAV 44100 Hz...",
-            file_ext, sample_rate
-        );
-    }
-
-    let parent = input_path.parent().ok_or("Cannot determine parent directory")?;
-    let stem = input_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .ok_or("Invalid input file stem")?;
-
-    let temp_path = parent.join(format!("temp_stem_sep_{}_{}.wav", stem, std::process::id()));
-
-    let convert = std::process::Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-i", input_path.to_str().ok_or("Invalid input path")?,
-            "-ar", "44100",
-            "-ac", "2",
-            temp_path.to_str().ok_or("Invalid temp path")?,
-        ])
-        .output()
-        .map_err(|e| format!("Failed to run ffmpeg (is ffmpeg installed?). Error: {}", e))?;
-
-    if !convert.status.success() {
-        let stderr = String::from_utf8_lossy(&convert.stderr);
-        return Err(format!("ffmpeg conversion failed: {}", stderr));
-    }
-
+    let (cache, _, _) = get_cache_dirs()?;
+    let temp_dir = cache.join("converted-input");
+    fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    let temp_path = temp_dir.join(format!("input-{}-{timestamp}.wav", std::process::id()));
+    // WAV files also need conversion: the CLI requires 44.1 kHz.
+    crate::info::convert_to_wav(input_path, &temp_path)?;
     Ok(temp_path)
 }
 
@@ -452,272 +429,131 @@ pub async fn run_bs_roformer_cpp_with_progress<F>(
 where
     F: Fn(BsRoformerCppProgress) + Send + Sync + 'static,
 {
+    progress_callback(BsRoformerCppProgress {
+        stage: "Preparing".into(),
+        percent: 0.0,
+        message: "Preparing the engine and model (first use downloads files)...".into(),
+        stem_index: None,
+    });
     let binary = get_binary_path().await?;
     let model = get_model_path().await?;
-
-    let output_dir_clone = output_dir.to_path_buf();
-    let output_file = output_dir_clone.join("output.wav");
-
-    let input_for_binary = convert_and_resample_if_needed(input_path)?;
-    let is_temp_file = input_for_binary != input_path;
-
-    let binary_dir = binary
-        .parent()
-        .ok_or("Cannot determine binary directory")?;
-
-    eprintln!("BSRoformer binary: {}", binary.display());
-    eprintln!("BSRoformer model: {}", model.display());
-    eprintln!("BSRoformer output base: {}", output_file.display());
-    eprintln!("BSRoformer input file (after resample check): {}", input_for_binary.display());
-    eprintln!("Binary dir: {}", binary_dir.display());
-
-    let binary_dir_clone = binary_dir.to_path_buf();
-    let binary_clone = binary.clone();
-
-    let mut cmd = TokioCommand::new(&binary_clone);
-    let cmd_args: Vec<String> = vec![
-        model.to_str().ok_or("Invalid model path")?.to_string(),
-        input_for_binary.to_str().ok_or("Invalid input path")?.to_string(),
-        output_file.to_str().ok_or("Invalid output path")?.to_string(),
-        "--overlap".to_string(),
-        "2".to_string(),
-    ];
-
-    cmd.args(&cmd_args)
-    .current_dir(&binary_dir_clone)
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .kill_on_drop(true);
-
-    #[cfg(target_os = "linux")]
-    cmd.env("LD_LIBRARY_PATH", &binary_dir_clone);
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        let path_sep = if cfg!(target_os = "windows") { ";" } else { ":" };
-        cmd.env("PATH", format!("{}{}{}", binary_dir_clone.display(), path_sep, std::env::var("PATH").unwrap_or_default()));
-        if cfg!(target_os = "windows") {
-            cmd.env("SYSTEMROOT", std::env::var("SYSTEMROOT").unwrap_or_default());
-        }
-    }
-
-    let mut process = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn BSRoformer binary: {}. binary={}, binary_dir={}, LD_LIBRARY_PATH={}, stderr_hint=Run 'ldd {}' to see which libraries are missing", e, binary.display(), binary_dir.display(), binary_dir.display(), binary.display()))?;
-
-    let stderr_handle = process
-        .stderr
-        .take()
-        .ok_or("Failed to take stderr handle")?;
-
-    let stdout_handle = process
-        .stdout
-        .take()
-        .ok_or("Failed to take stdout handle")?;
-
-    let overall_progress = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0));
-    let cb = std::sync::Arc::new(progress_callback);
-    let stderr_shared = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
-    let stderr_shared_clone = std::sync::Arc::clone(&stderr_shared);
-    let overall_clone = std::sync::Arc::clone(&overall_progress);
-    let cb_clone = std::sync::Arc::clone(&cb);
-    let stderr_shared_err = std::sync::Arc::clone(&stderr_shared);
-    let cb_err = std::sync::Arc::clone(&cb);
-
-    let stderr_task = tokio::spawn(async move {
-        let mut reader = BufReader::new(stderr_handle);
-        let mut line = String::new();
-
-        loop {
-            line.clear();
-            let bytes_read = reader
-                .read_line(&mut line)
-                .await
-                .map_err(|e| format!("Failed to read stderr: {}", e));
-
-            match bytes_read {
-                Ok(0) => break,
-                Ok(_) => {
-                    let stripped: String = line
-                        .chars()
-                        .filter(|c| !c.is_ascii_control())
-                        .collect();
-                    let mut full_stderr = stderr_shared_clone.lock().unwrap();
-                    *full_stderr += &stripped;
-
-                    let stage_clone = std::sync::Arc::clone(&cb_clone);
-                    if stripped.contains("Processing") || stripped.contains("processing") {
-                        let _ = (stage_clone)(BsRoformerCppProgress {
-                            stage: "Processing".to_string(),
-                            percent: 50.0,
-                            message: "Running inference...".to_string(),
-                            stem_index: None,
-                        });
-                    }
-                    if stripped.contains("Saving") || stripped.contains("saving") {
-                        let stem_idx = extract_stem_index_from_line(&stripped);
-                        let stem_msg = if let Some(idx) = stem_idx {
-                            format!("Saving stem {}", idx)
-                        } else {
-                            "Saving output...".to_string()
-                        };
-                        let _ = (stage_clone)(BsRoformerCppProgress {
-                            stage: "Saving".to_string(),
-                            percent: 90.0,
-                            message: stem_msg,
-                            stem_index: stem_idx,
-                        });
-                    }
-                    if stripped.contains("Error") || stripped.contains("error") {
-                        let _ = (stage_clone)(BsRoformerCppProgress {
-                            stage: "Error".to_string(),
-                            percent: 0.0,
-                            message: format!("BSRoformer error: {}", stripped.trim()),
-                            stem_index: None,
-                        });
-                    }
-                }
-                Err(e) => {
-                    eprintln!("BSRoformer stderr read error: {}", e);
-                    break;
-                }
-            }
-        }
-    });
-
-    let stdout_shared = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
-    let stdout_shared_clone = std::sync::Arc::clone(&stdout_shared);
-    let stdout_err = std::sync::Arc::clone(&stdout_shared);
-
-    let stdout_task = tokio::spawn(async move {
-        let mut reader = BufReader::new(stdout_handle);
-        let mut line = String::new();
-
-        loop {
-            line.clear();
-            let bytes_read = reader
-                .read_line(&mut line)
-                .await
-                .map_err(|e| format!("Failed to read stdout: {}", e));
-
-            match bytes_read {
-                Ok(0) => break,
-                Ok(_) => {
-                    let stripped: String = line
-                        .chars()
-                        .filter(|c| !c.is_ascii_control())
-                        .collect();
-                    let mut full_stdout = stdout_shared_clone.lock().unwrap();
-                    *full_stdout += &stripped;
-                    eprintln!("BSRoformer stdout: {}", stripped.trim());
-                }
-                Err(e) => {
-                    eprintln!("BSRoformer stdout read error: {}", e);
-                    break;
-                }
-            }
-        }
-    });
-
-    let wait_task = tokio::spawn(async move {
-        let result = process
-            .wait_with_output()
+    let source = input_path.to_owned();
+    let converted =
+        tauri::async_runtime::spawn_blocking(move || convert_and_resample_if_needed(&source))
             .await
-            .map_err(|e| format!("Failed to wait for BSRoformer: {}", e));
+            .map_err(|e| e.to_string())??;
+    let result = run_inference(&binary, &model, &converted, output_dir, progress_callback).await;
+    let _ = fs::remove_file(converted);
+    result
+}
 
-        let total_time = overall_clone.load(std::sync::atomic::Ordering::SeqCst);
-        if total_time == 1 {
-            return Ok::<Vec<(String, String)>, String>(Vec::new());
+async fn run_inference<F>(
+    binary: &Path,
+    model: &Path,
+    input: &Path,
+    output_dir: &Path,
+    callback: F,
+) -> Result<Vec<(String, String)>, String>
+where
+    F: Fn(BsRoformerCppProgress) + Send + Sync + 'static,
+{
+    let base = output_dir.join("output.wav");
+    let mut cmd = TokioCommand::new(binary);
+    cmd.arg(model)
+        .arg(input)
+        .arg(&base)
+        .args(["--overlap", "2"])
+        .current_dir(binary.parent().ok_or("Invalid binary path")?)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    #[cfg(target_os = "linux")]
+    cmd.env(
+        "LD_LIBRARY_PATH",
+        binary.parent().ok_or("Invalid binary path")?,
+    );
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000);
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Cannot start the inference engine: {e}"))?;
+    let stdout = child.stdout.take().ok_or("Missing stdout")?;
+    let stderr = child.stderr.take().ok_or("Missing stderr")?;
+    let callback = std::sync::Arc::new(callback);
+    callback(BsRoformerCppProgress {
+        stage: "Processing".into(),
+        percent: 5.0,
+        message: "Separating audio...".into(),
+        stem_index: None,
+    });
+    let out_cb = callback.clone();
+    let err_cb = callback.clone();
+    let stdout_task = tokio::spawn(read_inference_output(stdout, out_cb));
+    let stderr_task = tokio::spawn(read_inference_output(stderr, err_cb));
+    let status = child.wait().await.map_err(|e| e.to_string())?;
+    let stdout = stdout_task.await.map_err(|e| e.to_string())??;
+    let stderr = stderr_task.await.map_err(|e| e.to_string())??;
+    if !status.success() {
+        return Err(format!("Inference failed ({status}): {stderr}\n{stdout}"));
+    }
+    let pairs = parse_multi_stem_output(output_dir, &base)?;
+    let mut stems = Vec::new();
+    for (name, path) in pairs {
+        let dest = output_dir.join(format!("{name}.wav"));
+        fs::rename(&path, &dest).map_err(|e| format!("Failed to save {name}: {e}"))?;
+        stems.push((name, dest.to_string_lossy().into_owned()));
+    }
+    callback(BsRoformerCppProgress {
+        stage: "Complete".into(),
+        percent: 100.0,
+        message: "Separated 6 stems!".into(),
+        stem_index: None,
+    });
+    Ok(stems)
+}
+
+async fn read_inference_output<R, F>(
+    stream: R,
+    callback: std::sync::Arc<F>,
+) -> Result<String, String>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    F: Fn(BsRoformerCppProgress) + Send + Sync + 'static,
+{
+    let mut reader = BufReader::new(stream);
+    let mut buffer = Vec::new();
+    let mut log = String::new();
+    loop {
+        buffer.clear();
+        if reader
+            .read_until(b'\r', &mut buffer)
+            .await
+            .map_err(|e| e.to_string())?
+            == 0
+        {
+            break;
         }
-
-        match result {
-            Ok(output) => {
-                let status = output.status;
-                let stderr_str = stderr_shared_err.lock().unwrap().clone();
-                let _stdout_str = stdout_err.lock().unwrap().clone();
-
-                eprintln!("BSRoformer exited with status: {}", status);
-                eprintln!("BSRoformer full stderr: {}", stderr_str);
-
-                if status.success() {
-                    let stem_pairs = parse_multi_stem_output(&output_dir_clone, &output_file);
-                    if let Ok(ref pairs) = stem_pairs {
-                        let total = pairs.len();
-                        if total > 0 {
-                            (cb_err)(BsRoformerCppProgress {
-                                stage: "Complete".to_string(),
-                                percent: 100.0,
-                                message: format!("Separated {} stems!", total),
-                                stem_index: Some((total - 1) as u32),
-                            });
-                        }
-                        let pairs_to_rename: Vec<(String, String)> = pairs.iter().map(|(name, path)| (name.clone(), path.clone())).collect();
-                        let mut new_pairs: Vec<(String, String)> = Vec::new();
-                        for (name, path) in pairs_to_rename {
-                            let new_path = output_dir_clone.join(format!("{}.wav", name));
-                            if Path::new(&path).exists() && !Path::new(&new_path).exists() {
-                                let _ = fs::rename(path, &new_path);
-                            }
-                            new_pairs.push((name.clone(), new_path.to_str().ok_or("Invalid path")?.to_string()));
-                        }
-                        return Ok(new_pairs);
-                    }
-                    overall_clone.store(1, std::sync::atomic::Ordering::SeqCst);
-                    return stem_pairs;
-                } else {
-                    (cb_err)(BsRoformerCppProgress {
-                        stage: "Error".to_string(),
-                        percent: 0.0,
-                        message: format!("BSRoformer exited with status: {}. stderr: {}", status, stderr_str),
-                        stem_index: None,
-                    });
-                }
-            }
-            Err(e) => {
-                (cb_err)(BsRoformerCppProgress {
-                    stage: "Error".to_string(),
-                    percent: 0.0,
-                    message: e.to_string(),
+        let text = String::from_utf8_lossy(&buffer);
+        log.push_str(&text);
+        if let Some(before) = text.split('%').next().filter(|_| text.contains('%')) {
+            if let Some(percent) = before
+                .split_whitespace()
+                .last()
+                .and_then(|s| s.parse::<f64>().ok())
+            {
+                callback(BsRoformerCppProgress {
+                    stage: "Processing".into(),
+                    percent: percent.min(99.0),
+                    message: "Separating audio...".into(),
                     stem_index: None,
                 });
             }
         }
-        overall_clone.store(1, std::sync::atomic::Ordering::SeqCst);
-        Err("BSRoformer process did not complete successfully".to_string())
-    });
-
-    let wait_result = tokio::join!(stderr_task, stdout_task, wait_task);
-
-    if is_temp_file {
-        let _ = fs::remove_file(&input_for_binary);
     }
-
-    match wait_result.2 {
-        Ok(stems) => stems,
-        Err(e) => Err(e.to_string()),
-    }
+    Ok(log)
 }
 
-fn extract_stem_index_from_line(line: &str) -> Option<u32> {
-    let lower = line.to_lowercase();
-    if let Some(idx) = lower.find("stem ") {
-        let after = &lower[idx + 5..];
-        let after = after.trim_start();
-        if let Some(num) = after.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse::<u32>().ok() {
-            return Some(num);
-        }
-    }
-    None
-}
-
-const STEM_NAMES: [&str; 6] = [
-    "bass",
-    "drums",
-    "other",
-    "vocals",
-    "guitar",
-    "piano",
-];
+const STEM_NAMES: [&str; 6] = ["bass", "drums", "other", "vocals", "guitar", "piano"];
 
 fn parse_multi_stem_output(
     output_dir: &Path,
@@ -730,8 +566,8 @@ fn parse_multi_stem_output(
 
     let mut stems: Vec<(u32, String, String)> = Vec::new();
 
-    for entry in fs::read_dir(output_dir)
-        .map_err(|e| format!("Failed to read output directory: {}", e))?
+    for entry in
+        fs::read_dir(output_dir).map_err(|e| format!("Failed to read output directory: {}", e))?
     {
         let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
         let path = entry.path();
@@ -759,11 +595,15 @@ fn parse_multi_stem_output(
         }
     }
 
-    stems.sort_by(|a, b| a.0.cmp(&b.0));
+    stems.sort_by_key(|a| a.0);
 
-    let result: Vec<(String, String)> = stems.into_iter()
+    let result: Vec<(String, String)> = stems
+        .into_iter()
         .map(|(_, name, path)| (name, path))
         .collect();
 
+    if result.len() != 6 {
+        return Err(format!("Expected 6 stems, found {}", result.len()));
+    }
     Ok(result)
 }
