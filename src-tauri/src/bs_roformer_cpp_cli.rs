@@ -188,11 +188,17 @@ pub fn get_cache_dirs() -> Result<(PathBuf, PathBuf, PathBuf), String> {
 }
 
 pub async fn get_binary_path() -> Result<PathBuf, String> {
-    let (cache_dir, binary_dir, _model_dir) = get_cache_dirs()?;
     let backend = detect_gpu_backend();
+    get_binary_path_for(&backend).await
+}
+
+pub async fn get_binary_path_for(backend: &BsRoformerBackend) -> Result<PathBuf, String> {
+    let (cache_dir, binary_root, _model_dir) = get_cache_dirs()?;
+    let binary_dir = binary_root.join(format!("{backend:?}"));
+    fs::create_dir_all(&binary_dir).map_err(|e| e.to_string())?;
     let binary_path = binary_dir.join(BSROFORMER_BINARY_NAME);
 
-    eprintln!("BSRoformer backend: {}", get_backend_name(&backend));
+    eprintln!("BSRoformer backend: {}", get_backend_name(backend));
 
     // Redownload if binary exists but is empty or corrupted
     if binary_path.exists() {
@@ -203,13 +209,13 @@ pub async fn get_binary_path() -> Result<PathBuf, String> {
         let _ = std::fs::remove_file(&binary_path);
     }
 
-    let binary_url = get_binary_url(&backend);
+    let binary_url = get_binary_url(backend);
 
     eprintln!(
         "Downloading BSRoformer.cpp binary (backend: {})...",
-        get_backend_name(&backend)
+        get_backend_name(backend)
     );
-    download_and_extract_binary(binary_url, &binary_dir, &cache_dir, &backend).await?;
+    download_and_extract_binary(binary_url, &binary_dir, &cache_dir, backend).await?;
 
     if !binary_path.exists() {
         return Err("Failed to extract BSRoformer binary".to_string());
@@ -224,12 +230,12 @@ pub async fn get_binary_path() -> Result<PathBuf, String> {
 }
 
 async fn download_to_file(url: &str, dest: &Path) -> Result<(), String> {
+    crate::jobs::check()?;
     let client = reqwest::Client::new();
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to download from {}: {}", url, e))?;
+    let response = tokio::select! {
+        response = client.get(url).send() => response.map_err(|e|format!("Falha no download: {e}"))?,
+        _ = crate::jobs::cancelled() => return Err("Operação cancelada".into()),
+    };
 
     if !response.status().is_success() {
         return Err(format!("Download failed (status: {})", response.status()));
@@ -241,13 +247,32 @@ async fn download_to_file(url: &str, dest: &Path) -> Result<(), String> {
     let expected = response.content_length();
     let mut response = response;
     let mut downloaded = 0u64;
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|e| format!("Download interrupted: {e}"))?
-    {
+    let mut reported = std::time::Instant::now() - std::time::Duration::from_secs(1);
+    loop {
+        let chunk = tokio::select! {
+            chunk = response.chunk() => chunk.map_err(|e|format!("Download interrompido: {e}"))?,
+            _ = crate::jobs::cancelled() => return Err("Operação cancelada".into()),
+        };
+        let Some(chunk) = chunk else {
+            break;
+        };
         file.write_all(&chunk).map_err(|e| e.to_string())?;
+        crate::jobs::check()?;
         downloaded += chunk.len() as u64;
+        if reported.elapsed().as_millis() >= 200 {
+            crate::jobs::progress(
+                "downloading",
+                expected.map(|n| downloaded as f64 / n as f64 * 100.0),
+                &format!(
+                    "Download: {:.1} MB{}",
+                    downloaded as f64 / 1_000_000.0,
+                    expected
+                        .map(|n| format!(" / {:.1} MB", n as f64 / 1_000_000.0))
+                        .unwrap_or_default()
+                ),
+            );
+            reported = std::time::Instant::now();
+        }
     }
     file.sync_all().map_err(|e| e.to_string())?;
     drop(file);
@@ -429,15 +454,38 @@ pub async fn run_bs_roformer_cpp_with_progress<F>(
 where
     F: Fn(BsRoformerCppProgress) + Send + Sync + 'static,
 {
+    run_bs_roformer_cpp_backend(
+        input_path,
+        output_dir,
+        detect_gpu_backend(),
+        progress_callback,
+    )
+    .await
+}
+
+pub async fn run_bs_roformer_cpp_backend<F>(
+    input_path: &Path,
+    output_dir: &Path,
+    backend: BsRoformerBackend,
+    progress_callback: F,
+) -> Result<Vec<(String, String)>, String>
+where
+    F: Fn(BsRoformerCppProgress) + Send + Sync + 'static,
+{
     progress_callback(BsRoformerCppProgress {
         stage: "Preparing".into(),
         percent: 0.0,
         message: "Preparing the engine and model (first use downloads files)...".into(),
         stem_index: None,
     });
-    let binary = get_binary_path().await?;
+    let binary = get_binary_path_for(&backend).await?;
     let model = get_model_path().await?;
     let source = input_path.to_owned();
+    crate::jobs::progress(
+        "converting",
+        None,
+        "Convertendo áudio para 44,1 kHz estéreo…",
+    );
     let converted =
         tauri::async_runtime::spawn_blocking(move || convert_and_resample_if_needed(&source))
             .await
@@ -474,9 +522,13 @@ where
     );
     #[cfg(windows)]
     cmd.creation_flags(0x08000000);
+    #[cfg(unix)]
+    cmd.process_group(0);
+    crate::jobs::check()?;
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("Cannot start the inference engine: {e}"))?;
+    let _guard = crate::jobs::register(child.id().ok_or("Processo indisponível")?)?;
     let stdout = child.stdout.take().ok_or("Missing stdout")?;
     let stderr = child.stderr.take().ok_or("Missing stderr")?;
     let callback = std::sync::Arc::new(callback);
@@ -493,6 +545,7 @@ where
     let status = child.wait().await.map_err(|e| e.to_string())?;
     let stdout = stdout_task.await.map_err(|e| e.to_string())??;
     let stderr = stderr_task.await.map_err(|e| e.to_string())??;
+    crate::jobs::check()?;
     if !status.success() {
         return Err(format!("Inference failed ({status}): {stderr}\n{stdout}"));
     }

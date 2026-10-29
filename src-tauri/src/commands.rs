@@ -4,6 +4,12 @@ use tauri::Emitter as _;
 pub struct ProcessResult {
     #[serde(default)]
     pub project_id: String,
+    #[serde(default)]
+    pub source_path: String,
+    #[serde(default)]
+    pub elapsed_secs: f64,
+    #[serde(default)]
+    pub clip_start: f64,
     pub paths: Vec<String>,
     pub name: String,
     pub duration_secs: f64,
@@ -94,21 +100,24 @@ pub async fn open_output_folder(path: String) -> Result<OpenFolderResult, String
     }
 }
 
-static PROCESSING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
 #[tauri::command]
 pub async fn process_file(
     path: String,
     model: String,
+    backend_choice: Option<String>,
+    clip: Option<(f64, f64)>,
     app: tauri::AppHandle,
 ) -> Result<ProcessResult, String> {
-    let _guard = PROCESSING
+    let _guard = crate::jobs::OPERATION
         .try_lock()
         .map_err(|_| "Another separation is already running")?;
+    crate::jobs::begin();
+    let source_path = path.clone();
+    let backend_choice = backend_choice.as_deref().unwrap_or("auto");
     if !["demucs", "bs-roformer", "bs-roformer-cpp"].contains(&model.as_str()) {
         return Err(format!("Unknown model: {model}"));
     }
-    let input = std::path::PathBuf::from(&path);
+    let mut input = std::path::PathBuf::from(&path);
     if !input.is_file() {
         return Err(format!("Audio file not found: {path}"));
     }
@@ -125,6 +134,50 @@ pub async fn process_file(
     let project_id = timestamp.to_string();
     let output = crate::library::projects_dir()?.join(&project_id);
     std::fs::create_dir_all(&output).map_err(|e| e.to_string())?;
+    if let Some((start, end)) = clip {
+        if !start.is_finite()
+            || !end.is_finite()
+            || start < 0.0
+            || end <= start
+            || end - start > 30.0
+        {
+            return Err("Escolha um trecho de até 30 segundos".into());
+        }
+        let original = input.clone();
+        let dir = output.join("clip");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let dest = dir.join(format!("{track_name}.wav"));
+        let clipped = dest.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let result = crate::jobs::sync_output(
+                crate::media::ffmpeg()
+                    .args(["-ss", &start.to_string(), "-i"])
+                    .arg(original)
+                    .args([
+                        "-t",
+                        &(end - start).to_string(),
+                        "-ar",
+                        "44100",
+                        "-ac",
+                        "2",
+                        "-c:a",
+                        "pcm_s16le",
+                    ])
+                    .arg(clipped),
+            )?;
+            if result.status.success() {
+                Ok(())
+            } else {
+                Err(String::from_utf8_lossy(&result.stderr).to_string())
+            }
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        input = dest;
+    }
+    crate::models::prepare(&model, backend_choice).await?;
+    let started = std::time::Instant::now();
+    crate::jobs::progress("processing", None, "Separando os seis instrumentos…");
     let backend;
     let pairs = match model.as_str() {
         "bs-roformer" => {
@@ -142,6 +195,15 @@ pub async fn process_file(
                 &input_dir,
                 &output,
                 move |progress| {
+                    crate::jobs::progress(
+                        "processing",
+                        if progress.percent > 5.0 {
+                            Some(progress.percent)
+                        } else {
+                            None
+                        },
+                        &progress.message,
+                    );
                     let _ = app.emit("bs_roformer_progress", progress);
                 },
             )
@@ -149,15 +211,25 @@ pub async fn process_file(
         }
         "bs-roformer-cpp" => {
             backend = Some(
-                crate::bs_roformer_cpp_cli::get_backend_name(
-                    &crate::bs_roformer_cpp_cli::detect_gpu_backend(),
-                )
+                crate::bs_roformer_cpp_cli::get_backend_name(&crate::models::selected_backend(
+                    backend_choice,
+                )?)
                 .to_owned(),
             );
-            crate::bs_roformer_cpp_cli::run_bs_roformer_cpp_with_progress(
+            crate::bs_roformer_cpp_cli::run_bs_roformer_cpp_backend(
                 &input,
                 &output,
+                crate::models::selected_backend(backend_choice)?,
                 move |progress| {
+                    crate::jobs::progress(
+                        "processing",
+                        if progress.percent > 5.0 {
+                            Some(progress.percent)
+                        } else {
+                            None
+                        },
+                        &progress.message,
+                    );
                     let _ = app.emit("bs_roformer_cpp_progress", progress);
                 },
             )
@@ -166,6 +238,15 @@ pub async fn process_file(
         _ => {
             backend = Some("CPU".to_owned());
             crate::demucs_cli::run_demucs_cli_with_progress(&input, &output, move |progress| {
+                crate::jobs::progress(
+                    "processing",
+                    if progress.percent > 0.0 {
+                        Some(progress.percent)
+                    } else {
+                        None
+                    },
+                    &progress.message,
+                );
                 let _ = app.emit("demucs_progress", progress);
             })
             .await?;
@@ -186,12 +267,17 @@ pub async fn process_file(
         ));
     }
     let first = pairs[0].1.clone();
+    crate::jobs::check()?;
+    crate::jobs::progress("finalizing", None, "Validando e salvando o projeto…");
     let (duration_secs, sample_rate, channels, file_size_bytes) =
         tauri::async_runtime::spawn_blocking(move || crate::info::probe_wav(&first))
             .await
             .map_err(|e| e.to_string())??;
     let result = ProcessResult {
         project_id: project_id.clone(),
+        source_path,
+        elapsed_secs: started.elapsed().as_secs_f64(),
+        clip_start: clip.map(|(a, _)| a).unwrap_or(0.0),
         paths: pairs.into_iter().map(|(_, p)| p).collect(),
         name: track_name,
         duration_secs,

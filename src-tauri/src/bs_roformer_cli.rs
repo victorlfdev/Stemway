@@ -34,6 +34,10 @@ where
         message: "Separating audio. The first run may download the model (~700 MB)...".into(),
     });
     let mut cmd = tokio::process::Command::new(executable);
+    cmd.env(
+        "BS_ROFORMER_MODELS_PATH",
+        crate::models::model_dir("bs-roformer")?,
+    );
     cmd.arg("--input_folder")
         .arg(input_dir)
         .arg("--store_dir")
@@ -45,10 +49,18 @@ where
         .kill_on_drop(true);
     #[cfg(windows)]
     cmd.creation_flags(0x08000000);
-    let output = cmd
-        .output()
-        .await
+    #[cfg(unix)]
+    cmd.process_group(0);
+    crate::jobs::check()?;
+    let process = cmd
+        .spawn()
         .map_err(|e| format!("Failed to start BS-RoFormer: {e}"))?;
+    let _guard = crate::jobs::register(process.id().ok_or("Processo indisponível")?)?;
+    let output = process
+        .wait_with_output()
+        .await
+        .map_err(|e| e.to_string())?;
+    crate::jobs::check()?;
     if !output.status.success() {
         return Err(format!(
             "BS-RoFormer failed ({}): {}",

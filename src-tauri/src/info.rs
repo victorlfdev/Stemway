@@ -83,22 +83,22 @@ pub fn probe_wav(path: &str) -> Result<(f64, u32, u16, u64), String> {
 }
 
 pub fn convert_to_wav(input: &std::path::Path, output: &std::path::Path) -> Result<(), String> {
-    let result = command("ffmpeg")
-        .args(["-v", "error", "-nostdin", "-y", "-i"])
-        .arg(input)
-        .args([
-            "-map",
-            "0:a:0",
-            "-ar",
-            "44100",
-            "-ac",
-            "2",
-            "-c:a",
-            "pcm_s16le",
-        ])
-        .arg(output)
-        .output()
-        .map_err(|e| format!("FFmpeg is required: {e}"))?;
+    let result = crate::jobs::sync_output(
+        command("ffmpeg")
+            .args(["-v", "error", "-nostdin", "-y", "-i"])
+            .arg(input)
+            .args([
+                "-map",
+                "0:a:0",
+                "-ar",
+                "44100",
+                "-ac",
+                "2",
+                "-c:a",
+                "pcm_s16le",
+            ])
+            .arg(output),
+    )?;
     if !result.status.success() {
         return Err(format!(
             "Audio conversion failed: {}",

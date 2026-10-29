@@ -26,6 +26,22 @@ pub fn stamp() -> String {
         .to_string()
 }
 
+pub fn source_key(paths: &[String], extra: &str) -> Result<String, String> {
+    use std::hash::{Hash, Hasher};
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    extra.hash(&mut hash);
+    for path in paths {
+        path.hash(&mut hash);
+        let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
+        metadata.len().hash(&mut hash);
+        metadata
+            .modified()
+            .map_err(|e| e.to_string())?
+            .hash(&mut hash);
+    }
+    Ok(format!("{:016x}", hash.finish()))
+}
+
 fn project_dir(id: &str) -> Result<PathBuf, String> {
     if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) {
         return Err("Projeto inválido".into());
@@ -99,6 +115,31 @@ pub async fn save_project(id: String, state: serde_json::Value) -> Result<(), St
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+pub async fn read_workspace() -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let path = data_dir()?.join("workspace.json");
+        if !path.exists() {
+            return Ok(serde_json::json!({}));
+        }
+        serde_json::from_slice(&std::fs::read(path).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn write_workspace(value: serde_json::Value) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = data_dir()?;
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        atomic_json(&dir.join("workspace.json"), &value)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 pub fn envelope(path: &str, bins: usize) -> Result<Vec<f32>, String> {
     let source = rodio::Decoder::new(std::io::BufReader::new(
         std::fs::File::open(path).map_err(|e| e.to_string())?,
@@ -126,9 +167,24 @@ pub async fn audio_waveforms(paths: Vec<String>) -> Result<Vec<Vec<f32>>, String
     if paths.len() > 12 {
         return Err("Muitas faixas".into());
     }
-    tauri::async_runtime::spawn_blocking(move || paths.iter().map(|p| envelope(p, 700)).collect())
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = data_dir()?.join("waveforms");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let path = dir.join(format!("{}.json", source_key(&paths, "peaks-v1")?));
+        if let Ok(bytes) = std::fs::read(&path) {
+            if let Ok(peaks) = serde_json::from_slice::<Vec<Vec<f32>>>(&bytes) {
+                return Ok(peaks);
+            }
+        }
+        let peaks: Vec<Vec<f32>> = paths
+            .iter()
+            .map(|p| envelope(p, 700))
+            .collect::<Result<_, _>>()?;
+        atomic_json(&path, &peaks)?;
+        Ok(peaks)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

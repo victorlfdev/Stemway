@@ -7,7 +7,10 @@ pub mod commands;
 pub mod demucs_cli;
 pub mod demucs_output;
 pub mod info;
+pub mod jobs;
 pub mod library;
+pub mod media;
+pub mod models;
 pub mod python_tools;
 
 pub use commands::ProcessResult;
@@ -25,6 +28,7 @@ pub fn tauri_app() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
+            jobs::init(app.handle().clone());
             let scope = app.fs_scope();
             let cache_dir = directories::ProjectDirs::from("", "", "stemway")
                 .map(|d| d.cache_dir().to_path_buf())
@@ -51,10 +55,19 @@ pub fn tauri_app() {
             commands::audio_get_playback_state,
             library::list_projects,
             library::save_project,
+            library::read_workspace,
+            library::write_workspace,
             library::audio_waveforms,
             library::audio_transport,
             library::audio_seek,
             library::audio_set_loop,
+            media::render_study,
+            media::export_audio,
+            jobs::cancel_operation,
+            models::model_status,
+            models::hardware_info,
+            models::prepare_model,
+            models::remove_model,
         ])
         .run(tauri::generate_context!())
         .expect("error while running stemway tauri app");

@@ -37,6 +37,7 @@ pub fn find_tool(name: &str) -> Option<PathBuf> {
 }
 
 pub fn ensure_tool(name: &str, package: &str) -> Result<PathBuf, String> {
+    crate::jobs::check()?;
     if let Some(path) = find_tool(name) {
         return Ok(path);
     }
@@ -55,11 +56,12 @@ pub fn ensure_tool(name: &str, package: &str) -> Result<PathBuf, String> {
                     .unwrap_or(false)
             })
             .ok_or("Python 3.10–3.12 is required. Install Python, then restart Stemway.")?;
-        let output = std::process::Command::new(launcher)
-            .args(["-m", "venv"])
-            .arg(&venv)
-            .output()
-            .map_err(|e| e.to_string())?;
+        crate::jobs::progress("installing", None, "Criando ambiente Python privado…");
+        let output = crate::jobs::sync_output(
+            std::process::Command::new(launcher)
+                .args(["-m", "venv"])
+                .arg(&venv),
+        )?;
         if !output.status.success() {
             return Err(format!(
                 "Failed to create Python environment: {}",
@@ -67,18 +69,20 @@ pub fn ensure_tool(name: &str, package: &str) -> Result<PathBuf, String> {
             ));
         }
     }
-    let output = std::process::Command::new(&python)
-        .args([
-            "-m",
-            "pip",
-            "install",
-            "torch==2.5.1",
-            "torchaudio==2.5.1",
-            "soundfile==0.14.0",
-            package,
-        ])
-        .output()
-        .map_err(|e| format!("Failed to install {package}: {e}"))?;
+    crate::jobs::progress(
+        "installing",
+        None,
+        "Instalando dependências no ambiente privado…",
+    );
+    let output = crate::jobs::sync_output(std::process::Command::new(&python).args([
+        "-m",
+        "pip",
+        "install",
+        "torch==2.5.1",
+        "torchaudio==2.5.1",
+        "soundfile==0.14.0",
+        package,
+    ]))?;
     if !output.status.success() {
         return Err(format!(
             "Failed to install {package}: {}",
