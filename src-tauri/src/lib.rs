@@ -7,6 +7,7 @@ pub mod commands;
 pub mod demucs_cli;
 pub mod demucs_output;
 pub mod info;
+pub mod library;
 pub mod python_tools;
 
 pub use commands::ProcessResult;
@@ -29,6 +30,7 @@ pub fn tauri_app() {
                 .map(|d| d.cache_dir().to_path_buf())
                 .expect("failed to get cache dir");
             scope.allow_directory(&cache_dir, true)?;
+            scope.allow_directory(crate::library::data_dir()?, true)?;
             let temp_dir = std::env::temp_dir();
             scope.allow_directory(&temp_dir, true)?;
             Ok(())
@@ -47,6 +49,12 @@ pub fn tauri_app() {
             commands::audio_get_stem_count,
             commands::audio_get_stems,
             commands::audio_get_playback_state,
+            library::list_projects,
+            library::save_project,
+            library::audio_waveforms,
+            library::audio_transport,
+            library::audio_seek,
+            library::audio_set_loop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running stemway tauri app");

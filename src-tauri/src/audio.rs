@@ -1,8 +1,17 @@
-use rodio::{Decoder, Sink};
+use rodio::{Decoder, Sink, Source};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
+
+#[derive(Clone, serde::Serialize)]
+pub struct Transport {
+    pub playing: bool,
+    pub position: f64,
+    pub duration: f64,
+    pub loop_region: Option<(f64, f64)>,
+}
 
 pub struct AudioContext {
     pub tx: std::sync::Mutex<Option<mpsc::SyncSender<AudioCommand>>>,
@@ -11,6 +20,17 @@ pub struct AudioContext {
 type StemState = (String, bool, bool, f32);
 
 pub enum AudioCommand {
+    Transport {
+        response: mpsc::SyncSender<Result<Transport, String>>,
+    },
+    Seek {
+        seconds: f64,
+        response: mpsc::SyncSender<Result<(), String>>,
+    },
+    Loop {
+        region: Option<(f64, f64)>,
+        response: mpsc::SyncSender<Result<(), String>>,
+    },
     GetPlaybackState {
         response: mpsc::SyncSender<Result<bool, String>>,
     },
@@ -50,6 +70,10 @@ pub struct AudioManager {
     stems: HashMap<String, StemTrack>,
     is_playing: bool,
     solo_stems: HashSet<String>,
+    position: f64,
+    duration: f64,
+    started: Instant,
+    loop_region: Option<(f64, f64)>,
 }
 
 struct StemTrack {
@@ -68,6 +92,10 @@ impl AudioManager {
             stems: HashMap::new(),
             is_playing: false,
             solo_stems: HashSet::new(),
+            position: 0.0,
+            duration: 0.0,
+            started: Instant::now(),
+            loop_region: None,
         }
     }
 
@@ -95,6 +123,17 @@ impl AudioManager {
             self.stems = new_stems;
             self.is_playing = false;
             self.solo_stems.clear();
+            self.position = 0.0;
+            self.loop_region = None;
+            self.duration = stem_paths
+                .first()
+                .and_then(|(_, p)| {
+                    Decoder::new(BufReader::new(File::open(p).ok()?))
+                        .ok()?
+                        .total_duration()
+                })
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
             Ok(loaded_ids)
         } else {
             Err("Failed to load some stems".into())
@@ -114,6 +153,12 @@ impl AudioManager {
             }
             self.is_playing = false;
         }
+        if self.is_playing {
+            self.position = self.current_position();
+        } else if self.position >= self.duration {
+            self.position = 0.0;
+        }
+        self.started = Instant::now();
         self.is_playing = !self.is_playing;
         // Muted and non-soloed tracks must keep advancing to stay in sync.
         for track in self.stems.values() {
@@ -124,6 +169,68 @@ impl AudioManager {
             }
         }
         Ok(())
+    }
+
+    fn current_position(&self) -> f64 {
+        (self.position
+            + if self.is_playing {
+                self.started.elapsed().as_secs_f64()
+            } else {
+                0.0
+            })
+        .min(self.duration)
+    }
+
+    fn seek(&mut self, seconds: f64) -> Result<(), String> {
+        if !seconds.is_finite() || seconds < 0.0 {
+            return Err("Posição inválida".into());
+        }
+        let seconds = seconds.min(self.duration);
+        for track in self.stems.values() {
+            track.sink.pause();
+        }
+        let result = (|| {
+            for track in self.stems.values() {
+                if track.sink.empty() {
+                    let file = File::open(&track.path).map_err(|e| e.to_string())?;
+                    track
+                        .sink
+                        .append(Decoder::new(BufReader::new(file)).map_err(|e| e.to_string())?);
+                }
+                track
+                    .sink
+                    .try_seek(Duration::from_secs_f64(seconds))
+                    .map_err(|e| e.to_string())?;
+            }
+            Ok::<_, String>(())
+        })();
+        self.position = seconds;
+        self.started = Instant::now();
+        if result.is_err() {
+            self.is_playing = false;
+        }
+        if self.is_playing {
+            for track in self.stems.values() {
+                track.sink.play();
+            }
+        }
+        result
+    }
+
+    fn tick(&mut self) {
+        if !self.is_playing {
+            return;
+        }
+        if let Some((start, end)) = self.loop_region {
+            if self.current_position() >= end {
+                let _ = self.seek(start);
+                return;
+            }
+        }
+        if self.stems.values().all(|track| track.sink.empty()) {
+            self.position = self.duration;
+            self.is_playing = false;
+        }
     }
 
     fn update_gains(&self) {
@@ -228,8 +335,40 @@ impl AudioContext {
 
             let mut manager = AudioManager::new(stream, stream_handle);
 
-            while let Ok(cmd) = rx.recv() {
+            loop {
+                manager.tick();
+                let cmd = match rx.recv_timeout(Duration::from_millis(12)) {
+                    Ok(cmd) => cmd,
+                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                };
                 match cmd {
+                    AudioCommand::Transport { response } => {
+                        let _ = response.send(Ok(Transport {
+                            playing: manager.is_playing,
+                            position: manager.current_position(),
+                            duration: manager.duration,
+                            loop_region: manager.loop_region,
+                        }));
+                    }
+                    AudioCommand::Seek { seconds, response } => {
+                        let _ = response.send(manager.seek(seconds));
+                    }
+                    AudioCommand::Loop { region, response } => {
+                        let result = if region.is_some_and(|(a, b)| {
+                            !a.is_finite()
+                                || !b.is_finite()
+                                || a < 0.0
+                                || b <= a
+                                || b > manager.duration + 0.1
+                        }) {
+                            Err("Defina um intervalo válido dentro da música".into())
+                        } else {
+                            manager.loop_region = region;
+                            Ok(())
+                        };
+                        let _ = response.send(result);
+                    }
                     AudioCommand::GetPlaybackState { response } => {
                         if manager.stems.values().all(|track| track.sink.empty()) {
                             manager.is_playing = false;
@@ -321,7 +460,9 @@ fn effective_volume(volume: f32, muted: bool, any_solo: bool, soloed: bool) -> f
 }
 
 impl Default for AudioContext {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]

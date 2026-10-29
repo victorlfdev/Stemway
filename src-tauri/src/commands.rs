@@ -2,6 +2,8 @@ use tauri::Emitter as _;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct ProcessResult {
+    #[serde(default)]
+    pub project_id: String,
     pub paths: Vec<String>,
     pub name: String,
     pub duration_secs: f64,
@@ -115,18 +117,13 @@ pub async fn process_file(
         .and_then(|s| s.to_str())
         .ok_or("Invalid filename")?
         .to_owned();
-    let cache = directories::ProjectDirs::from("", "", "stemway")
-        .map(|d| d.cache_dir().to_path_buf())
-        .unwrap_or_else(std::env::temp_dir);
     // Each run has its own directory, so a failed run cannot return old stems.
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| e.to_string())?
         .as_nanos();
-    let output = cache
-        .join("stem-output")
-        .join(&model)
-        .join(format!("{track_name}-{timestamp}"));
+    let project_id = timestamp.to_string();
+    let output = crate::library::projects_dir()?.join(&project_id);
     std::fs::create_dir_all(&output).map_err(|e| e.to_string())?;
     let backend;
     let pairs = match model.as_str() {
@@ -193,7 +190,8 @@ pub async fn process_file(
         tauri::async_runtime::spawn_blocking(move || crate::info::probe_wav(&first))
             .await
             .map_err(|e| e.to_string())??;
-    Ok(ProcessResult {
+    let result = ProcessResult {
+        project_id: project_id.clone(),
         paths: pairs.into_iter().map(|(_, p)| p).collect(),
         name: track_name,
         duration_secs,
@@ -202,7 +200,9 @@ pub async fn process_file(
         file_size_bytes,
         model,
         backend,
-    })
+    };
+    crate::library::persist_result(project_id, result.clone())?;
+    Ok(result)
 }
 
 #[derive(serde::Serialize)]
