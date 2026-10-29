@@ -46,6 +46,22 @@ pub fn progress(stage: &str, percent: Option<f64>, message: &str) {
     }
 }
 
+pub fn inference_progress(stage: &str, percent: f64) {
+    match stage {
+        "Preparing" => progress("preparing", None, "Preparando o motor de separação…"),
+        "Complete" => progress("finalizing", None, "Concluindo a separação…"),
+        _ => progress(
+            "processing",
+            if percent.is_finite() && percent > 5.0 {
+                Some(percent.min(99.0))
+            } else {
+                None
+            },
+            "Separando os seis instrumentos…",
+        ),
+    }
+}
+
 fn kill_tree(pid: u32) {
     #[cfg(windows)]
     {
@@ -98,8 +114,14 @@ pub fn sync_output(cmd: &mut std::process::Command) -> Result<std::process::Outp
     }
     cmd.stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-    let child = cmd.spawn().map_err(|e| e.to_string())?;
-    let _guard = register(child.id())?;
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    let _guard = match register(child.id()) {
+        Ok(guard) => guard,
+        Err(error) => {
+            let _ = child.wait();
+            return Err(error);
+        }
+    };
     let output = child.wait_with_output().map_err(|e| e.to_string())?;
     check()?;
     Ok(output)

@@ -18,6 +18,37 @@ pub fn projects_dir() -> Result<PathBuf, String> {
     Ok(path)
 }
 
+pub struct PendingProject {
+    path: PathBuf,
+    committed: bool,
+}
+impl PendingProject {
+    pub fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            committed: false,
+        }
+    }
+    pub fn commit(&mut self) {
+        self.committed = true;
+    }
+}
+impl Drop for PendingProject {
+    fn drop(&mut self) {
+        if self.committed || self.path.is_symlink() {
+            return;
+        }
+        if let (Ok(path), Ok(root)) = (
+            self.path.canonicalize(),
+            projects_dir().and_then(|p| p.canonicalize().map_err(|e| e.to_string())),
+        ) {
+            if path.parent() == Some(root.as_path()) {
+                let _ = std::fs::remove_dir_all(path);
+            }
+        }
+    }
+}
+
 pub fn stamp() -> String {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

@@ -8,7 +8,7 @@ After a local build, open `src-tauri/target/release/stemway.exe` directly, or in
 `src-tauri/target/release/bundle/nsis/Stemway_0.3.0_x64-setup.exe`. The release app
 includes the frontend and does not need Vite or a terminal running.
 
-The default **6-Track Premium** model runs on the Radeon RX 9060 XT through
+The default **BS-RoFormer nativo** model runs on the Radeon RX 9060 XT through
 Vulkan. It downloads the official Windows inference engine and GGUF model on
 first use. A compatible graphics driver is sufficient; the Vulkan SDK is not
 required to run the prebuilt engine.
@@ -40,6 +40,14 @@ tested matching version 2.5.1.
 - **GPU acceleration:** Vulkan and CUDA support via BS-RoFormer.cpp
 - **Cross-platform:** Linux, Windows, macOS
 - **Open source:** MIT licensed
+- **Persistent library:** Reopen projects with mixer levels, mute/solo, markers, loop and study settings
+- **Waveform player:** Shared timeline, seeking, A–B loop and keyboard shortcuts
+- **Batch queue:** Multiple files, reordering, retries, pause after current task and real cancellation
+- **Study tools:** Independent speed (0.5–2x) and pitch (-12 to +12 semitones), named markers and backing-track presets
+- **Custom export:** Selected stems or the audible mix, WAV 16/24-bit, FLAC and MP3, optional excerpts and study settings
+- **Model comparison:** Process the same excerpt (up to 30 seconds) with two models, then switch A/B at the same position
+- **Offline model manager:** Prepare, inspect storage, reinstall or remove model assets; CPU/GPU preference and actual local timing samples
+- **Portuguese interface:** Accessible controls, library search and an offline system font
 
 ## Getting Started
 
@@ -114,35 +122,38 @@ Binaries are output to `src-tauri/target/release/bundle`:
 
 ## Models Compared
 
-### HTDemucs (6-Track Standard)
-- **Quality:** Good
-- **Speed:** Fast CPU processing (~3-5 min for a 3-minute song)
+### HTDemucs
+- **Speed:** CPU processing; see measured timings on your computer in the app
 - **Stems:** Vocals, Drums, Bass, Other, Guitar, Piano
 - **GPU:** No
 - **Best for:** Quick separation, reliable results
 
-### BS-RoFormer (6-Track Essential)
-- **Quality:** Good
-- **Speed:** Slower, CPU only (~10-15 min)
+### BS-RoFormer Python
+- **Speed:** CPU processing; runtime depends on track length and hardware
 - **Stems:** Vocals, Drums, Bass, Other, Guitar, Piano
 - **GPU:** No
 - **Best for:** Alternative model comparison
 
-### BS-RoFormer.cpp (6-Track Premium)
-- **Quality:** Best
-- **Speed:** Fast with GPU (~30 sec), slow with CPU (~25 min)
+### BS-RoFormer nativo (BS-RoFormer.cpp)
+- **Speed:** GPU or CPU processing; the app records actual local timings
 - **Stems:** Vocals, Drums, Bass, Other, Guitar, Piano
 - **GPU:** Vulkan (NVIDIA/AMD), CUDA 11/12 (NVIDIA), macOS ARM/x64
-- **Best for:** Highest quality, multi-instrument separation
-- **Recommended** for most users
+- **Best for:** Native multi-instrument separation with a compatible GPU
+- Hardware guidance and short-excerpt A/B comparison help choose the appropriate engine
 
 ## Usage
 
-1. **Choose a model** — Select from the three options based on quality/speed needs
-2. **Drop your file** — Drag and drop a WAV or MP3 file, or click to browse
-3. **Separate** — Click "Separate Stems" and wait for processing
-4. **Preview** — Listen to individual stems in the results panel
-5. **Export** — Open the output folder to access your stem WAV files
+1. **Choose a model** and CPU/GPU preference (the native engine supports explicit backend selection).
+2. **Add music** using the file picker, Ctrl+O or drag-and-drop. WAV, MP3, FLAC, OGG, AIFF and M4A are accepted.
+3. **Process the queue** with “Processar fila”. Reorder pending tasks, retry failures, pause after the current track or cancel the current operation.
+4. **Listen and study** using the shared timeline, six real waveforms, volume/mute/solo and presets. Space toggles playback; arrows seek five seconds when focus is outside form controls.
+5. **Use study tools** to mark A/B, loop an excerpt, add named markers, and apply speed/pitch independently. Applying settings prepares cached local copies.
+6. **Export** a selected mix or individual stems, choosing format, destination, excerpt and study settings. A fresh subfolder preserves existing files.
+7. **Return later** through the searchable project library. The mixer, markers, study settings and listening position are saved automatically.
+
+To compare models, click a source file in the queue and expand “Comparar modelos em um trecho”. Select two different engines and an excerpt up to 30 seconds. Completed A/B buttons preserve musical position and listening settings while reloading the selected result; switching is not gapless.
+
+“Modelos e hardware” displays the detected adapter, backend, owned model storage and offline preparation actions. It reports actual local timing samples rather than universal performance guarantees. The Python environments remain installed when model weights are removed.
 
 ## Output Format
 
@@ -151,10 +162,14 @@ All stems are saved as:
 - **Channels:** Stereo
 - **Sample rate:** 44100 Hz; input files are converted when needed
 
-Processed files are stored in:
-- **Linux:** `~/.local/share/stemway/stem-output/`
-- **Windows:** `%LOCALAPPDATA%\stemway\cache\stem-output\`
-- **macOS:** `~/Library/Caches/com.stemway.app/stem-output/`
+New projects are stored permanently in the `projects/` subdirectory of the local application data directory, including a `project.json` manifest:
+- **Linux:** `~/.local/share/stemway/projects/`
+- **Windows:** `%LOCALAPPDATA%\stemway\data\projects\`
+- **macOS:** `~/Library/Application Support/stemway/projects/`
+
+Model engines/weights remain in application-owned cache directories. Waveform envelopes and reusable study copies live under application data. Legacy separation outputs in the old cache location are left untouched. An interrupted queue is restored in a paused state and requires a manual restart.
+
+Custom exports support WAV PCM 16/24-bit, FLAC and MP3 320 kbps at 44.1 kHz stereo. Individual exports preserve stem levels; mix exports apply volume, mute and solo plus a clipping limiter. Original stem WAVs are preserved in every case.
 
 ## Technology Stack
 
@@ -253,9 +268,14 @@ FFmpeg must be on PATH for backend audio tests.
 
 ```powershell
 npm run build
+npm test
 npm audit
 cargo test --manifest-path src-tauri/Cargo.toml --locked
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
+# Real-device transport, study render, four export formats, persistence and cancellation:
+cargo run --manifest-path src-tauri/Cargo.toml --example studio_smoke --locked
+# The exact command used by the interface; saves a real project in the library:
+cargo run --manifest-path src-tauri/Cargo.toml --example workflow_smoke --locked -- "C:/path/to/audio.wav" bs-roformer-cpp auto
 # Real pipeline test; downloads the selected model on first use:
 cargo run --manifest-path src-tauri/Cargo.toml --example smoke -- "C:/path/to/audio.wav" bs-roformer-cpp --audio
 ```

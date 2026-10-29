@@ -40,6 +40,7 @@ where
     );
     cmd.arg("--input_folder")
         .arg(input_dir)
+        .args(["--device", "cpu"])
         .arg("--store_dir")
         .arg(output_dir)
         .env("PYTHONUNBUFFERED", "1")

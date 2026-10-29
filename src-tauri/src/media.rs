@@ -58,7 +58,7 @@ pub async fn render_study(
     tauri::async_runtime::spawn_blocking(move || {
         static RENDERS: std::sync::Mutex<()> = std::sync::Mutex::new(());
         let _guard = RENDERS.lock().map_err(|e| e.to_string())?;
-        let key = crate::library::source_key(&paths, &format!("study-v1-{speed}-{semitones}"))?;
+        let key = crate::library::source_key(&paths, &format!("study-v2-{speed}-{semitones}"))?;
         let root = data_dir()?.join("study");
         let completed = root.join(key);
         let cached: Vec<String> = (0..paths.len())
@@ -78,10 +78,12 @@ pub async fn render_study(
             let mut outputs = Vec::new();
             for (i, path) in paths.iter().enumerate() {
                 let dest = dir.join(format!("{i}.wav"));
+                let duration = crate::info::probe_wav(path)?.0 / speed;
+                let aligned = format!("{filter},apad,atrim=duration={duration:.8}");
                 run(ffmpeg()
                     .arg("-i")
                     .arg(path)
-                    .args(["-af", &filter, "-ac", "2", "-c:a", "pcm_f32le"])
+                    .args(["-af", &aligned, "-ac", "2", "-c:a", "pcm_f32le"])
                     .arg(&dest))?;
                 outputs.push(dest.to_string_lossy().into_owned());
             }

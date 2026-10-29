@@ -8,49 +8,52 @@ web
 
 ## Users
 
-Musicians, producers, DJs, and audio engineers who need to isolate individual instrument stems from full music tracks for purposes including remixing, sampling, mixing analysis, backing track creation, and live performance. Users operate locally on their own machines with personal audio files they own or have rights to use.
+Musicians, producers, DJs and audio engineers using the Stemway desktop app on their own computer. Core tasks are extracting stems, creating backing tracks, comparing separation models and practicing instrument parts.
 
 ## Product Purpose
 
-Stemway is a desktop application that uses AI models to separate a full music audio track (WAV or MP3) into four individual stems: drums, bass, vocals, and other. The product lets users choose between multiple separation models, process their files locally, preview the resulting stems, and export them as WAV files. Success means a user obtains clean, usable stems from their music in minutes, not hours.
+Separate local audio into six stems: vocals, drums, bass, guitar, piano and other. Let users listen, navigate, mix, study and export those results, then reopen their work without repeating inference.
 
 ## Positioning
 
-Stemway offers three separation models (HTDemucs, BS-RoFormer, BS-RoFormer.cpp) with GPU acceleration options, all running locally on the user's machine. No data leaves the computer, no subscriptions are required, and the source code is open. This is a local-first, open-source alternative to web-only stem separation services.
+An open-source, local-first desktop studio built with Tauri 2, Rust and React 18. Audio is never uploaded. Model engines and weights are downloaded when requested or on first use; prepared models can run offline. No paid tiers: model names identify their engine rather than a subscription level.
 
 ## Operating Context
 
-Users run the application as a standalone desktop app on Linux, Windows, or macOS. They drag-and-drop or browse for audio files (WAV or MP3), select a separation model, and wait for processing. Output is four WAV files per stem, saved to a local cache directory. The app uses `ffprobe` to probe audio metadata and manages model installation automatically on first use.
+Windows, Linux and macOS desktop app. The latest integration checks run on Windows with Vulkan and a real output device. Other operating systems require platform validation before claiming equivalent runtime coverage.
 
 ## Capabilities and Constraints
 
-- **Input formats:** WAV, MP3 (stereo)
-- **Output format:** 16-bit PCM WAV, stereo, 4 stems (drums, bass, vocals, other)
-- **Models:** HTDemucs (Python-based CLI), BS-RoFormer (Python-based CLI), BS-RoFormer.cpp (Vulkan/CPU via native binary)
-- **GPU acceleration:** BS-RoFormer.cpp supports Vulkan (NVIDIA/AMD) and CPU fallback
-- **File management:** Processed stems stored in OS cache directory (~/.local/share/stemway/ on Linux, %APPDATA% on Windows)
-- **Dependency management:** External models installed automatically on first use
-- **Technical constraints:** Large model downloads (~316 MB for HTDemucs); processing time depends on file length and model complexity; CPU fallback for BS-RoFormer.cpp is significantly slower than GPU
+- Inputs: WAV, MP3, FLAC, OGG, AIFF/AIF and M4A through FFmpeg.
+- Six-stem models: HTDemucs 4.0.1, BS-RoFormer-Infer 0.1.5 and BSRoformer.cpp 0.1.0.
+- Native model: automatic backend selection or explicit CPU/GPU choice. Python engines currently use CPU.
+- Sequential file queue with reordering, removal, retries, pause after the current task and cancellation of owned subprocesses. Restored interrupted tasks wait for a manual restart.
+- Durable local project library with saved gains, mute/solo, study settings, loop, position and markers.
+- Mixer with real waveform envelopes, shared transport, seeking, presets and keyboard shortcuts.
+- Study copies with independent speed (0.5–2x) and pitch (-12 to +12 semitones), A–B loop and named markers. Study copies and waveform envelopes are cached locally.
+- Export selected individual stems or the audible mix as WAV 16/24-bit, FLAC or MP3 320 kbps, including an optional excerpt and study settings. Export creates a new subfolder to avoid overwriting sources.
+- Model comparison processes up to 30 seconds through two models, then switches A/B at the same musical position using the same mix and study settings. Switching reloads audio; it is not a gapless crossfade.
+- Model management shows owned weight storage, downloads for offline use, reinstalls and removes model assets while preserving projects and the private Python environment.
+- Hardware-based model suggestion plus empirical processing ratios from this computer, filtered to the selected backend. These are observations, not quality rankings or universal benchmarks.
+- Progress distinguishes setup, install, download, conversion, inference and saving. Unknown percentages stay indeterminate. ETA appears only with useful inference progress.
+- FFmpeg/ffprobe must be available. Python 3.10–3.12 is needed for the Python models.
 
 ## Brand Commitments
 
-None confirmed at this time.
+Simple task flow, honest progress, no invented quality guarantees, benchmark claims, testimonials or subscription implications.
 
 ## Evidence on Hand
 
-- Test audio files in `src-tauri/`: `test_stereo.wav`, `test-music.mp3`, `test_empty.wav`
-- Test output WAVs in `src-tauri/`: `test_output_stem__bass.wav`, `test_output_stem__drums.wav`, `test_output_stem__other.wav`, `test_output_stem__vocals.wav`
-- Plan documentation in `plan.md`
-
-Future work must not fabricate testimonials, benchmark numbers, or user claims.
+Rust unit tests, frontend behavior tests, real-device `studio_smoke`, and real-model `workflow_smoke` examples. The repository contains a music test file for manual integration validation.
 
 ## Product Principles
 
-1. **Local-first:** All processing happens on the user's machine. No network requests for audio data; models downloaded once and cached.
-2. **Model choice:** Offer users a selection of AI models with different quality/speed trade-offs, not a single opaque default.
-3. **Transparent output:** Clearly show processing progress, model being used, and the resulting stem files. No hidden steps.
-4. **Simple workflow:** Drag a file, choose a model, get stems. The interface should not require audio engineering knowledge.
+1. Keep music and projects local.
+2. Preserve originals; write derived audio to separate files.
+3. Show actual model/backend and distinguish measured values from estimates.
+4. Keep advanced study, comparison and export controls discoverable without obscuring the basic separation workflow.
+5. Persist completed work and let a failed queue task leave other tasks usable.
 
 ## Accessibility & Inclusion
 
-No product-specific accessibility requirements established at this time. The app should be usable with standard desktop accessibility tools (screen readers, keyboard navigation).
+Portuguese interface, descriptive labels for all sliders and mute/solo buttons, keyboard focus, native form controls, screen-reader status messages and reduced-motion support. Shortcuts: Ctrl+O to add files, Space to toggle playback and left/right arrows to seek five seconds when a form control is not focused.

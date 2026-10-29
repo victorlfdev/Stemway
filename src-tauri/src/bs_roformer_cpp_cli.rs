@@ -442,7 +442,10 @@ pub fn convert_and_resample_if_needed(input_path: &Path) -> Result<PathBuf, Stri
         .as_nanos();
     let temp_path = temp_dir.join(format!("input-{}-{timestamp}.wav", std::process::id()));
     // WAV files also need conversion: the CLI requires 44.1 kHz.
-    crate::info::convert_to_wav(input_path, &temp_path)?;
+    if let Err(error) = crate::info::convert_to_wav(input_path, &temp_path) {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(error);
+    }
     Ok(temp_path)
 }
 

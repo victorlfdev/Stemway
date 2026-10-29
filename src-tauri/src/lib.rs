@@ -40,6 +40,11 @@ pub fn tauri_app() {
             Ok(())
         })
         .manage(audio)
+        .on_window_event(|_, event| {
+            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                let _ = jobs::cancel();
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::process_file,
             commands::open_output_folder,

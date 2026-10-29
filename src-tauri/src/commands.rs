@@ -1,5 +1,3 @@
-use tauri::Emitter as _;
-
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct ProcessResult {
     #[serde(default)]
@@ -106,7 +104,6 @@ pub async fn process_file(
     model: String,
     backend_choice: Option<String>,
     clip: Option<(f64, f64)>,
-    app: tauri::AppHandle,
 ) -> Result<ProcessResult, String> {
     let _guard = crate::jobs::OPERATION
         .try_lock()
@@ -133,7 +130,8 @@ pub async fn process_file(
         .as_nanos();
     let project_id = timestamp.to_string();
     let output = crate::library::projects_dir()?.join(&project_id);
-    std::fs::create_dir_all(&output).map_err(|e| e.to_string())?;
+    std::fs::create_dir(&output).map_err(|e| e.to_string())?;
+    let mut pending_project = crate::library::PendingProject::new(output.clone());
     if let Some((start, end)) = clip {
         if !start.is_finite()
             || !end.is_finite()
@@ -195,16 +193,7 @@ pub async fn process_file(
                 &input_dir,
                 &output,
                 move |progress| {
-                    crate::jobs::progress(
-                        "processing",
-                        if progress.percent > 5.0 {
-                            Some(progress.percent)
-                        } else {
-                            None
-                        },
-                        &progress.message,
-                    );
-                    let _ = app.emit("bs_roformer_progress", progress);
+                    crate::jobs::inference_progress(&progress.stage, progress.percent);
                 },
             )
             .await?
@@ -221,16 +210,7 @@ pub async fn process_file(
                 &output,
                 crate::models::selected_backend(backend_choice)?,
                 move |progress| {
-                    crate::jobs::progress(
-                        "processing",
-                        if progress.percent > 5.0 {
-                            Some(progress.percent)
-                        } else {
-                            None
-                        },
-                        &progress.message,
-                    );
-                    let _ = app.emit("bs_roformer_cpp_progress", progress);
+                    crate::jobs::inference_progress(&progress.stage, progress.percent);
                 },
             )
             .await?
@@ -238,16 +218,7 @@ pub async fn process_file(
         _ => {
             backend = Some("CPU".to_owned());
             crate::demucs_cli::run_demucs_cli_with_progress(&input, &output, move |progress| {
-                crate::jobs::progress(
-                    "processing",
-                    if progress.percent > 0.0 {
-                        Some(progress.percent)
-                    } else {
-                        None
-                    },
-                    &progress.message,
-                );
-                let _ = app.emit("demucs_progress", progress);
+                crate::jobs::inference_progress(&progress.stage, progress.percent);
             })
             .await?;
             crate::demucs_output::parse_demucs_output(
@@ -288,6 +259,7 @@ pub async fn process_file(
         backend,
     };
     crate::library::persist_result(project_id, result.clone())?;
+    pending_project.commit();
     Ok(result)
 }
 
